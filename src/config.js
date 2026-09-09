@@ -9,18 +9,20 @@ export const DEFAULT_SETTINGS = Object.freeze({
 
 export function configFrom(env = process.env) {
   const production = env.NODE_ENV === 'production';
-  const dataDir = path.resolve(env.MARYLEE_DATA_DIR || './data');
+  const dataDir = path.resolve(env.MARYLEE_DATA_DIR || env.RAILWAY_VOLUME_MOUNT_PATH || './data');
   const password = env.MARYLEE_ADMIN_PASSWORD || '';
-  if (production && password.length < 12) throw new Error('Задай MARYLEE_ADMIN_PASSWORD: щонайменше 12 символів.');
+  const setupErrors = [];
+  if (production && password.length < 12) setupErrors.push('У Variables задай MARYLEE_ADMIN_PASSWORD: щонайменше 12 символів.');
   if (env.RAILWAY_ENVIRONMENT_ID && !env.RAILWAY_VOLUME_MOUNT_PATH) {
-    throw new Error('Додай окремий Railway Volume у /data: каталог має переживати перевстановлення.');
+    setupErrors.push('Додай до цього сервісу окремий Railway Volume у /data: каталог має переживати перевстановлення. RAILWAY_VOLUME_MOUNT_PATH Railway задає автоматично після підключення Volume.');
   }
   if (env.RAILWAY_VOLUME_MOUNT_PATH) {
     const mount = path.resolve(env.RAILWAY_VOLUME_MOUNT_PATH);
-    if (dataDir !== mount && !dataDir.startsWith(mount + path.sep)) throw new Error('MARYLEE_DATA_DIR має бути всередині окремого Volume.');
+    if (dataDir !== mount && !dataDir.startsWith(mount + path.sep)) setupErrors.push('MARYLEE_DATA_DIR має бути всередині окремого Volume. Прибери цю змінну для автоматичного вибору або задай фактичний mount path.');
   }
   const parent = env.MARYLEE_DRIVE_PARENT_ID || '';
   if (parent && parent !== YOUTUBE_STORIS_FOLDER) throw new Error('Marylee дозволено працювати лише всередині YouTube Storis. Перевір MARYLEE_DRIVE_PARENT_ID.');
+  if (setupErrors.length) throw new Error('Marylee Content: запуск зупинено, потрібно завершити налаштування.\n' + setupErrors.map((message, index) => `${index + 1}. ${message}`).join('\n'));
   const positive = (name, fallback) => {
     const value = Number(env[name] || fallback);
     if (!Number.isFinite(value) || value <= 0) throw new Error(`Некоректна змінна ${name}`);

@@ -25,6 +25,17 @@ test('configuration cannot inherit the TikTok channel folder or publish flags',(
   assert.throws(()=>configFrom({RAILWAY_VOLUME_MOUNT_PATH:'/data',MARYLEE_DATA_DIR:'/tmp'}),/всередині/);
   assert.throws(()=>configFrom({NODE_ENV:'production',MARYLEE_ADMIN_PASSWORD:'short'}),/12 символів/);
 });
+test('Railway uses its mounted volume automatically and reports all missing startup settings',()=>{
+  const env={NODE_ENV:'production',RAILWAY_ENVIRONMENT_ID:'test-environment',MARYLEE_ADMIN_PASSWORD:'test-only-long-password',RAILWAY_VOLUME_MOUNT_PATH:'/data'};
+  assert.equal(configFrom(env).dataDir,'/data');
+  assert.equal(configFrom({...env,RAILWAY_VOLUME_MOUNT_PATH:'/app/persistent'}).dataDir,'/app/persistent');
+  assert.equal(configFrom({...env,MARYLEE_DATA_DIR:'/data/marylee'}).dataDir,'/data/marylee');
+  assert.throws(()=>configFrom({...env,MARYLEE_DATA_DIR:'/data-other'}),/всередині/);
+  assert.throws(()=>configFrom({...env,MARYLEE_DATA_DIR:'/data/../tmp'}),/всередині/);
+  assert.throws(()=>configFrom({NODE_ENV:'production',RAILWAY_ENVIRONMENT_ID:'test-environment'}),error=>{
+    assert.match(error.message,/MARYLEE_ADMIN_PASSWORD/);assert.match(error.message,/Railway Volume/);return true;
+  });
+});
 test('Kyiv calendar keeps local midnight and DST transitions',()=>{
   assert.equal(kyivToday(new Date('2026-09-09T21:30:00Z')),'2026-09-10');
   assert.equal(kyivMinutes(new Date('2026-01-01T20:30:00Z')),22*60+30);
