@@ -1,0 +1,13 @@
+{
+  "name": "marylee-content",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Marylee Shop: каталог, підготовка контенту та календар ручних публікацій",
+  "engines": { "node": ">=24.0.0 <25" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js",
+    "check": "node scripts/check.js"
+  }
+}
