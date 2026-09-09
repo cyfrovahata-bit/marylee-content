@@ -68,12 +68,30 @@ export class Worker {
     const plan=this.store.get('plan',job.target)||createPlan(this.store,job.target);
     const selected=job.payload.itemId?plan.items.filter(i=>i.id===job.payload.itemId):plan.items.filter(i=>!['posted','skipped'].includes(i.status));
     if(!selected.length||selected.some(i=>i.status==='posted'))throw new Error('Опублікований матеріал не перегенеровується');
-    const needCopy=job.payload.mode==='text'||job.payload.mode==='all'?selected:selected.filter(i=>!i.caption);
-    if(needCopy.length) {progress('Підбираю фото й пишу різні тексти для кожного слота',8);applyCopy(plan,await this.ai.copy(plan,needCopy),this.store);}
+    const forceCopy=job.payload.mode==='text'||job.payload.mode==='all';
+    const needCopy=selected.filter(i=>!i.caption||(forceCopy&&job.payload.copiedRevisions?.[i.id]!==i.revision));
+    const batches=[];
+    for(const item of needCopy) {
+      const batch=batches.at(-1);
+      if(!batch||batch.length>=3||batch[0].productId!==item.productId)batches.push([item]);
+      else batch.push(item);
+    }
+    let copied=0;
+    for(const [n,batch] of batches.entries()) {
+      progress(`Готую тексти для ${batch[0].time}–${batch.at(-1).time} · частина ${n+1}/${batches.length}`,8+Math.round(n/batches.length*30));
+      const values=await this.ai.copy(plan,batch);
+      // Save the texts and their retry checkpoint together. A later failure must
+      // not discard or charge again for successful parts of this job.
+      this.store.transaction(()=>{
+        applyCopy(plan,values,this.store);
+        this.store.updateJob(job,{payload:{...job.payload,copiedRevisions:{...job.payload.copiedRevisions,...Object.fromEntries(batch.map(i=>[i.id,i.revision]))}}});
+      });
+      copied+=batch.length;progress(`Тексти збережено: ${copied}/${needCopy.length}`,8+Math.round((n+1)/batches.length*30));
+    }
     if(job.payload.mode==='text')return {date:plan.id,textsReady:true};
     const toRender=selected.filter(i=>!['ready','posted','skipped'].includes(i.status)||job.payload.itemId);
     for(const [n,item] of toRender.entries()) {
-      progress(`${item.time} · ${item.label}`,15+Math.round(n/Math.max(1,toRender.length)*80));
+      progress(`${item.time} · ${item.label}`,40+Math.round(n/Math.max(1,toRender.length)*55));
       try {
         if(item.productId&&!this.store.get('product',item.productId)?.active)throw new Error('Товар знято з продажу. Пропусти цей слот або заміни план.');
         await this.renderer(this.store,this.ai,plan,item);this.store.put('plan',plan);

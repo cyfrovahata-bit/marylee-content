@@ -112,17 +112,23 @@ export class AI {
     if(!this.config.openaiKey) throw new Error('Додай OPENAI_API_KEY у Variables Marylee для генерації текстів.');
     const allHistory=[...new Set([...this.store.list('copy-history').map(h=>h.caption),...this.store.list('plan').flatMap(p=>p.items.filter(i=>i.kind!=='story'&&i.caption).map(i=>i.caption))])];
     const history=allHistory.slice(-45);
-    const products=plan.productIds.map(id=>this.store.get('product',id)).filter(Boolean).map(p=>({...p,assets:productAssets(this.store,p,{originalOnly:true}).slice(0,8).map(a=>({id:a.id,name:a.name,kind:a.kind,width:a.width,height:a.height}))}));
+    const productIds=new Set(items.map(i=>i.productId).filter(Boolean));
+    const products=plan.productIds.filter(id=>productIds.has(id)).map(id=>this.store.get('product',id)).filter(Boolean).map(p=>({...p,assets:productAssets(this.store,p,{originalOnly:true}).slice(0,8).map(a=>({id:a.id,name:a.name,kind:a.kind,width:a.width,height:a.height}))}));
     const content=[{type:'text',text:JSON.stringify({topic:plan.topic,date:plan.id,products,slots:items.map(i=>({slotId:i.id,time:i.time,kind:i.kind,purpose:i.purpose,productId:i.productId,dependsOn:i.dependsOn||null})),history})}];
     for(const p of products) for(const a of p.assets.filter(a=>a.kind==='image').slice(0,4)) {
       const full=this.store.get('asset',a.id);
       content.push({type:'text',text:`Фото товару ${p.id}; assetId ${a.id}`},{type:'image_url',image_url:{url:'data:image/jpeg;base64,'+(await readFile(mediaPath(this.store,full.thumbnail))).toString('base64'),detail:'low'}});
     }
     this.store.reserve('text',1,this.config.textReserve);
+    const started=Date.now();
+    console.info('Marylee text request',JSON.stringify({model:this.config.textModel,slots:items.length,images:content.filter(c=>c.type==='image_url').length}));
     const res=await this.request('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${this.config.openaiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:this.config.textModel,messages:[{role:'system',content:system},{role:'user',content}],max_completion_tokens:9000,response_format:{type:'json_schema',json_schema:{name:'marylee_day',strict:true,schema:copySchema(items)}}})},300000);
     const out=await res.json();
+    console.info('Marylee text response',JSON.stringify({model:out.model||this.config.textModel,slots:items.length,finishReason:out.choices?.[0]?.finish_reason||'missing',completionTokens:out.usage?.completion_tokens,elapsedMs:Date.now()-started}));
     if(out.choices?.[0]?.message?.refusal) throw new Error('ШІ відмовився створювати цей матеріал. Перевір опис і фото товару.');
-    if(out.choices?.[0]?.finish_reason!=='stop') throw new Error('Генерація текстів не завершена; спробуй окремий допис.');
+    if(out.choices?.[0]?.finish_reason==='length')throw new Error('Генерація текстів не завершена: ШІ вичерпав ліміт відповіді. Уже підготовлені тексти збережені; можна продовжити.');
+    if(out.choices?.[0]?.finish_reason==='content_filter')throw new Error('Сервіс ШІ зупинив відповідь через перевірку вмісту. Перевір опис і фото товару.');
+    if(out.choices?.[0]?.finish_reason!=='stop') throw new Error('Сервіс ШІ не повернув завершеної відповіді. Уже підготовлені тексти збережені; можна продовжити.');
     let data;try {data=JSON.parse(out.choices[0].message.content);}catch {throw new Error('Не вдалося прочитати тексти від ШІ');}
     return validateCopy(readCopy(data,items),items,allHistory);
   }

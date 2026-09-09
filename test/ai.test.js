@@ -51,28 +51,31 @@ function completion(data,overrides={}) {
 }
 
 test('a two-product day requests and saves every slot, including both repost stories, in schedule order',async t=>{
-  const {store,plan,config}=await fixture(t);let calls=0;const rendered=[];
+  const {store,plan,config}=await fixture(t);let calls=0;const rendered=[],requests=[];
   const ai=new AI(config,store,async(url,options)=>{
     calls++;assert.equal(url,'https://api.openai.com/v1/chat/completions');
     const request=JSON.parse(options.body),format=request.response_format.json_schema;
     assert.equal(format.strict,true);
     const requested=format.schema.properties.items;
     assert.equal(requested.type,'object');assert.equal(requested.additionalProperties,false);
-    assert.deepEqual(requested.required,['morning','share-morning','poll','carousel','detail','teaser','evening','share-evening']);
+    requests.push(requested.required);assert.ok(requested.required.length<=3);
     assert.deepEqual(Object.keys(requested.properties),requested.required);
-    assert.deepEqual(requested.properties['share-morning'].properties.slotId.enum,['share-morning']);
+    for(const id of requested.required)assert.deepEqual(requested.properties[id].properties.slotId.enum,[id]);
     const input=JSON.parse(request.messages[1].content[0].text);
     assert.deepEqual(input.slots.map(i=>i.slotId),requested.required);
-    assert.equal(input.products.length,2);
-    return completion(responseFor(plan));
+    const productIds=[...new Set(input.slots.map(i=>i.productId).filter(Boolean))];
+    assert.deepEqual(input.products.map(p=>p.id),productIds);
+    const full=responseFor(plan);
+    return completion({items:Object.fromEntries(Object.entries(full.items).filter(([id])=>requested.required.includes(id)))});
   });
   const worker=new Worker(store,ai,{configured:()=>false},{renderer:async(_s,_a,_p,item)=>{
     rendered.push(item.id);assert.equal(item.caption,captions[item.id]);item.status='ready';
   }});
   const job=store.enqueue('prepare',plan.id);await worker.tick();
   assert.equal(store.job(job.id).status,'done',store.job(job.id).message);
-  assert.deepEqual(rendered,plan.items.map(i=>i.id));assert.equal(calls,1);
-  assert.equal(store.usage().counts.text,1);assert.equal(store.list('copy-history').length,3);
+  assert.deepEqual(requests,[['morning','share-morning','poll'],['carousel','detail'],['teaser','evening','share-evening']]);
+  assert.deepEqual(rendered,plan.items.map(i=>i.id));assert.equal(calls,3);
+  assert.equal(store.usage().counts.text,3);assert.equal(store.list('copy-history').length,3);
   const saved=store.get('plan',plan.id);
   assert.deepEqual(saved.productIds,plan.productIds);assert.equal(store.list('product').length,2);
   assert.ok(saved.items.every(i=>i.status==='ready'&&i.revision===1&&i.caption===captions[i.id]));
@@ -94,9 +97,9 @@ test('single-slot regeneration and the optional story require only the requested
 
 test('bad or interrupted provider responses leave the existing day intact without paid retries',async t=>{
   const scenarios=[
-    ['missing story',data=>{delete data.items['share-evening'];return completion(data);},/неповний план \(7\/8/],
+    ['missing story',data=>{delete data.items['share-morning'];return completion(data);},/неповний план \(2\/3/],
     ['unexpected slot',data=>{data.items.unrequested=data.items.poll;delete data.items.poll;return completion(data);},/неповний/],
-    ['wrong slot identity',data=>{data.items.poll.slotId='teaser';return completion(data);},/слоти/],
+    ['wrong slot identity',data=>{data.items.poll.slotId='share-morning';return completion(data);},/слоти/],
     ['null material',data=>{data.items.poll=null;return completion(data);},/некоректний матеріал/],
     ['token limit',data=>completion(data,{finish_reason:'length'}),/не завершена/],
     ['refusal',()=>completion(null,{message:{content:null,refusal:'Cannot comply'}}),/відмовився/],
@@ -105,11 +108,42 @@ test('bad or interrupted provider responses leave the existing day intact withou
   ];
   for(const [name,reply,expected] of scenarios)await t.test(name,async t=>{
     const {store,plan,config}=await fixture(t);let calls=0,renders=0;
-    const ai=new AI(config,store,async()=>{calls++;return reply(responseFor(plan));});
+    const ai=new AI(config,store,async(_url,options)=>{
+      calls++;const ids=JSON.parse(options.body).response_format.json_schema.schema.properties.items.required;
+      const full=responseFor(plan);return reply({items:Object.fromEntries(ids.map(id=>[id,full.items[id]]))});
+    });
     const worker=new Worker(store,ai,{configured:()=>false},{renderer:async()=>{renders++;}});
     const job=store.enqueue('prepare',plan.id);await worker.tick();
     assert.equal(store.job(job.id).status,'error');assert.match(store.job(job.id).message,expected);
     assert.equal(calls,1);assert.equal(renders,0);assert.equal(store.usage().counts.text,1);
     assert.deepEqual(store.get('plan',plan.id),plan);assert.equal(store.list('copy-history').length,0);
+  });
+});
+
+test('retry preserves completed text batches, including an explicit full-text regeneration',async t=>{
+  for(const mode of ['render','all'])await t.test(mode,async t=>{
+    const {store,plan,config}=await fixture(t);const requests=[];let fail=true;
+    if(mode==='all'){
+      for(const i of plan.items)i.caption='Попередня версія для перевірки відновлення';
+      store.put('plan',plan);
+    }
+    const ai=new AI(config,store,async(_url,options)=>{
+      const ids=JSON.parse(options.body).response_format.json_schema.schema.properties.items.required;
+      requests.push(ids);
+      if(ids.includes('carousel')&&fail){fail=false;return new Response('{}',{status:429});}
+      const full=responseFor(plan);return completion({items:Object.fromEntries(ids.map(id=>[id,full.items[id]]))});
+    });
+    const worker=new Worker(store,ai,{configured:()=>false},{renderer:async(_s,_a,_p,i)=>{i.status='ready';}});
+    const job=store.enqueue('prepare',plan.id,{mode});await worker.tick();
+    assert.equal(store.job(job.id).status,'error');assert.equal(requests.length,2);
+    const partial=store.get('plan',plan.id),morning=partial.items.find(i=>i.id==='morning');
+    assert.equal(morning.caption,captions.morning);assert.equal(morning.revision,1);
+    assert.equal(store.job(job.id).payload.copiedRevisions.morning,1);
+    assert.equal(store.list('product').length,2);
+    const next=store.enqueue('prepare',plan.id,store.job(job.id).payload);await worker.tick();
+    assert.equal(store.job(next.id).status,'done',store.job(next.id).message);
+    assert.deepEqual(requests,[['morning','share-morning','poll'],['carousel','detail'],['carousel','detail'],['teaser','evening','share-evening']]);
+    assert.ok(store.get('plan',plan.id).items.every(i=>i.status==='ready'&&i.caption===captions[i.id]&&i.revision===1));
+    assert.equal(store.list('copy-history').length,3);
   });
 });
