@@ -7,6 +7,10 @@ import { renderItem } from './montage.js';
 import { saveAsset } from './files.js';
 import { exportDay } from './export.js';
 
+const errorMessage=error=>['TimeoutError','AbortError'].includes(error.name)
+  ?'Сервіс генерації не встиг відповісти. Товари та готові матеріали збережені. Можна продовжити вручну.'
+  :error.message;
+
 export function applyCopy(plan,values,store) {
   for(const value of values) {
     const item=plan.items.find(i=>i.id===value.slotId);
@@ -57,7 +61,7 @@ export class Worker {
       } else if(job.type==='export-drive')result=await this.toDrive(job.target,progress);
       else throw new Error('Невідоме завдання');
       this.store.updateJob(job,{status:'done',progress:100,message:'Готово',result});
-    }catch(e){this.store.updateJob(job,{status:'error',message:e.message});}
+    }catch(e){this.store.updateJob(job,{status:'error',message:errorMessage(e)});}
     finally{this.busy=false;}
   }
   async prepare(job,progress) {
@@ -76,7 +80,7 @@ export class Worker {
         // Reposts always point to the newest prepared parent.
         for(const child of plan.items.filter(i=>i.dependsOn===item.id&&i.status!=='posted')) {child.status='draft';child.outputIds=[];}
         this.store.put('plan',plan);
-      }catch(e){item.status='error';item.error=e.message;this.store.put('plan',plan);throw e;}
+      }catch(e){item.status='error';item.error=errorMessage(e);this.store.put('plan',plan);throw e;}
     }
     for(const child of plan.items.filter(i=>i.purpose==='repost'&&i.status==='draft'&&plan.items.find(p=>p.id===i.dependsOn)?.status==='ready')) {
       await this.renderer(this.store,this.ai,plan,child);this.store.put('plan',plan);

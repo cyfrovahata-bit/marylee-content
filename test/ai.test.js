@@ -100,6 +100,8 @@ test('bad or interrupted provider responses leave the existing day intact withou
     ['null material',data=>{data.items.poll=null;return completion(data);},/некоректний матеріал/],
     ['token limit',data=>completion(data,{finish_reason:'length'}),/не завершена/],
     ['refusal',()=>completion(null,{message:{content:null,refusal:'Cannot comply'}}),/відмовився/],
+    ['provider timeout',()=>{throw new DOMException('The operation was aborted due to timeout','TimeoutError');},/не встиг відповісти/],
+    ['response body timeout',()=>({ok:true,json:async()=>{throw new DOMException('The operation was aborted','AbortError');}}),/не встиг відповісти/],
   ];
   for(const [name,reply,expected] of scenarios)await t.test(name,async t=>{
     const {store,plan,config}=await fixture(t);let calls=0,renders=0;

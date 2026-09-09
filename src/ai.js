@@ -98,9 +98,14 @@ export function validateCopy(data,items,history=[]) {
 export class AI {
   constructor(config,store,fetcher=fetch) { this.config=config;this.store=store;this.fetch=fetcher; }
   async request(url,options,timeout=120000) {
-    const res=await this.fetch(url,{...options,signal:AbortSignal.timeout(timeout)});
-    if(!res.ok) throw new Error(`Сервіс генерації повернув ${res.status}. Перевір ключ, баланс і доступ до моделі. Повтор автоматично не запускається.`);
-    return res;
+    try {
+      const res=await this.fetch(url,{...options,signal:AbortSignal.timeout(timeout)});
+      if(!res.ok) throw new Error(`Сервіс генерації повернув ${res.status}. Перевір ключ, баланс і доступ до моделі. Повтор автоматично не запускається.`);
+      return res;
+    } catch(error) {
+      if(error.name==='TimeoutError'||error.name==='AbortError')throw new Error('Сервіс генерації не встиг відповісти. Товари та готові матеріали збережені. Можна продовжити вручну.');
+      throw error;
+    }
   }
   async copy(plan,items=plan.items) {
     if(!items.length)return [];
@@ -114,7 +119,7 @@ export class AI {
       content.push({type:'text',text:`Фото товару ${p.id}; assetId ${a.id}`},{type:'image_url',image_url:{url:'data:image/jpeg;base64,'+(await readFile(mediaPath(this.store,full.thumbnail))).toString('base64'),detail:'low'}});
     }
     this.store.reserve('text',1,this.config.textReserve);
-    const res=await this.request('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${this.config.openaiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:this.config.textModel,messages:[{role:'system',content:system},{role:'user',content}],max_completion_tokens:9000,response_format:{type:'json_schema',json_schema:{name:'marylee_day',strict:true,schema:copySchema(items)}}})});
+    const res=await this.request('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${this.config.openaiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:this.config.textModel,messages:[{role:'system',content:system},{role:'user',content}],max_completion_tokens:9000,response_format:{type:'json_schema',json_schema:{name:'marylee_day',strict:true,schema:copySchema(items)}}})},300000);
     const out=await res.json();
     if(out.choices?.[0]?.message?.refusal) throw new Error('ШІ відмовився створювати цей матеріал. Перевір опис і фото товару.');
     if(out.choices?.[0]?.finish_reason!=='stop') throw new Error('Генерація текстів не завершена; спробуй окремий допис.');
