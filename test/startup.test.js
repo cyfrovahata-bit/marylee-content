@@ -49,14 +49,12 @@ async function launch(env) {
   }
 }
 
-test('production entrypoint starts with a Railway volume and keeps the catalog after restart', {timeout: 30000}, async () => {
+test('production opens without login and keeps the catalog on its Railway volume after restart', {timeout: 30000}, async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'marylee-startup-'));
   const port = await freePort();
-  const password = 'startup-test-only-password';
   const env = {
     PATH: process.env.PATH, NODE_ENV: 'production', PORT: String(port),
     RAILWAY_ENVIRONMENT_ID: 'test-environment', RAILWAY_VOLUME_MOUNT_PATH: dir,
-    MARYLEE_ADMIN_PASSWORD: password,
   };
   const url = `http://127.0.0.1:${port}`;
   let processHandle;
@@ -65,16 +63,12 @@ test('production entrypoint starts with a Railway volume and keeps the catalog a
     const health = await fetch(url + '/healthz');
     assert.equal(health.status, 200);
     assert.equal((await health.json()).app, 'marylee-content');
-    assert.equal((await fetch(url + '/api/state')).status, 401);
-    const login = await fetch(url + '/api/login', {
-      method: 'POST', headers: {'X-Marylee': '1', 'Content-Type': 'application/json'},
-      body: JSON.stringify({password}),
-    });
-    assert.equal(login.status, 200);
-    assert.match(login.headers.get('set-cookie'), /; Secure/);
-    const cookie = login.headers.get('set-cookie').split(';')[0];
+    assert.equal((await fetch(url + '/api/state')).status, 200);
+    const page = await (await fetch(url + '/')).text();
+    assert.match(page, /id="shell">/);
+    assert.doesNotMatch(page, /id="login"|type="password"|id="logout"/);
     const create = await fetch(url + '/api/products', {
-      method: 'POST', headers: {cookie, 'X-Marylee': '1', 'Content-Type': 'application/json'},
+      method: 'POST', headers: {'X-Marylee': '1', 'Content-Type': 'application/json'},
       body: JSON.stringify({name: 'Товар після перезапуску', price: 1234}),
     });
     assert.equal(create.status, 201);
@@ -82,7 +76,7 @@ test('production entrypoint starts with a Railway volume and keeps the catalog a
     assert.ok((await stat(path.join(dir, 'marylee.sqlite'))).isFile());
     await processHandle.stop();
     processHandle = await launch(env);
-    const state = await fetch(url + '/api/state', {headers: {cookie}});
+    const state = await fetch(url + '/api/state');
     assert.equal(state.status, 200);
     assert.equal((await state.json()).products.find(p => p.id === product.id)?.price, 1234);
   } finally {

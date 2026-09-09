@@ -9,7 +9,7 @@ function toast(message,error=false){const el=$('#toast');el.textContent=message;
 async function api(endpoint,{method='GET',data,raw}={}) {
   const headers={'X-Marylee':'1'};if(data!==undefined)headers['Content-Type']='application/json';
   const res=await fetch(endpoint,{method,headers,body:raw|| (data!==undefined?JSON.stringify(data):undefined),credentials:'same-origin'});
-  const value=await res.json();if(res.status===401){$('#shell').hidden=true;$('#login').hidden=false;}
+  const value=await res.json();
   if(!res.ok)throw new Error(value.error||'Не вдалося виконати дію');return value;
 }
 async function action(fn){try{await fn();}catch(e){toast(e.message,true);}}
@@ -21,8 +21,8 @@ function busy(){return state.data?.jobs.some(j=>j.type==='prepare'&&j.target===s
 async function refresh({quiet=false}={}) {
   try {
     state.data=await api('/api/state'+(state.date?'?date='+encodeURIComponent(state.date):''));state.date=state.data.date;
-    $('#login').hidden=true;$('#shell').hidden=false;render();
-  }catch(e){if(!quiet&&$('#login').hidden)toast(e.message,true);}
+    render();
+  }catch(e){if(!quiet)toast(e.message,true);}
 }
 function tab(name){state.tab=name;for(const page of ['plan','products','studio','settings'])$('#'+page+'-page').hidden=page!==name;$$('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));$('#breadcrumb').textContent='Майстерня / '+({plan:'План дня',products:'Каталог',studio:'ШІ студія',settings:'Налаштування'}[name]);if(name==='settings')fillSettings();}
 function render() {
@@ -81,8 +81,6 @@ function itemPayload(){const f=$('#item-form');return {title:f.elements.title.va
 async function saveItem(){return api(`/api/plans/${state.date}/items/${state.editingItem}`,{method:'PUT',data:itemPayload()});}
 async function regenerate(mode){await saveItem();await api(`/api/plans/${state.date}/prepare`,{method:'POST',data:{itemId:state.editingItem,mode}});$('#item-dialog').close();await refresh();toast(mode==='text'?'Готую новий текст':'Монтаж додано до черги');}
 
-$('#login-form').addEventListener('submit',e=>{e.preventDefault();action(async()=>{try{await api('/api/login',{method:'POST',data:{password:e.target.elements.password.value}});await refresh();}catch(err){$('#login-error').textContent=err.message;}});});
-$('#logout').onclick=()=>action(async()=>{await api('/api/logout',{method:'POST',data:{}});location.reload();});
 $$('[data-tab]').forEach(b=>b.onclick=()=>tab(b.dataset.tab));
 $$('[data-close]').forEach(b=>b.onclick=()=>{const dialog=$('#'+b.dataset.close);if(state.formBusy&&b.dataset.close==='product-dialog')return;dialog.querySelectorAll('video').forEach(v=>v.pause());dialog.close();});
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;

@@ -11,7 +11,7 @@ import { cleanProduct } from '../src/catalog.js';
 import { Drive } from '../src/drive.js';
 import { AI, validateCopy, similar, captionFor } from '../src/ai.js';
 import { Worker } from '../src/worker.js';
-import { createApp, signSession, validSession } from '../src/server.js';
+import { createApp } from '../src/server.js';
 import { numbersToWords } from '../src/num2words-uk.js';
 
 async function fixture(t) {const dir=await mkdtemp(path.join(os.tmpdir(),'marylee-test-'));const store=new Store(dir);t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});return store;}
@@ -23,17 +23,17 @@ test('configuration cannot inherit the TikTok channel folder or publish flags',(
   assert.throws(()=>configFrom({MARYLEE_DRIVE_PARENT_ID:'1GiHg-j0ytQyfjLU97i5vkXL6XfjIR9Uk'}),/лише всередині/);
   assert.throws(()=>configFrom({RAILWAY_ENVIRONMENT_ID:'production'}),/Volume/);
   assert.throws(()=>configFrom({RAILWAY_VOLUME_MOUNT_PATH:'/data',MARYLEE_DATA_DIR:'/tmp'}),/всередині/);
-  assert.throws(()=>configFrom({NODE_ENV:'production',MARYLEE_ADMIN_PASSWORD:'short'}),/12 символів/);
+  assert.equal(configFrom({NODE_ENV:'production',MARYLEE_ADMIN_PASSWORD:'legacy-value'}).password,undefined);
 });
-test('Railway uses its mounted volume automatically and reports all missing startup settings',()=>{
-  const env={NODE_ENV:'production',RAILWAY_ENVIRONMENT_ID:'test-environment',MARYLEE_ADMIN_PASSWORD:'test-only-long-password',RAILWAY_VOLUME_MOUNT_PATH:'/data'};
+test('Railway uses its mounted volume automatically and starts without a password',()=>{
+  const env={NODE_ENV:'production',RAILWAY_ENVIRONMENT_ID:'test-environment',RAILWAY_VOLUME_MOUNT_PATH:'/data'};
   assert.equal(configFrom(env).dataDir,'/data');
   assert.equal(configFrom({...env,RAILWAY_VOLUME_MOUNT_PATH:'/app/persistent'}).dataDir,'/app/persistent');
   assert.equal(configFrom({...env,MARYLEE_DATA_DIR:'/data/marylee'}).dataDir,'/data/marylee');
   assert.throws(()=>configFrom({...env,MARYLEE_DATA_DIR:'/data-other'}),/всередині/);
   assert.throws(()=>configFrom({...env,MARYLEE_DATA_DIR:'/data/../tmp'}),/всередині/);
   assert.throws(()=>configFrom({NODE_ENV:'production',RAILWAY_ENVIRONMENT_ID:'test-environment'}),error=>{
-    assert.match(error.message,/MARYLEE_ADMIN_PASSWORD/);assert.match(error.message,/Railway Volume/);return true;
+    assert.doesNotMatch(error.message,/MARYLEE_ADMIN_PASSWORD/);assert.match(error.message,/Railway Volume/);return true;
   });
 });
 test('Kyiv calendar keeps local midnight and DST transitions',()=>{
@@ -89,20 +89,18 @@ test('worker resumes only unfinished items after a render failure',async t=>{
   const job=s.enqueue('prepare',plan.id);await worker.tick();assert.equal(s.job(job.id).status,'error');assert.equal(s.get('plan',plan.id).items[0].status,'ready');
   calls=[];s.enqueue('prepare',plan.id);await worker.tick();assert.equal(calls.includes('morning'),false);assert.equal(s.get('plan',plan.id).items.every(i=>i.status==='ready'),true);
 });
-test('session tampering, unauthenticated APIs, CSRF and video ranges',async t=>{
-  const s=await fixture(t),password='local-test-password-only',c=configFrom({MARYLEE_ADMIN_PASSWORD:password});s.setSettings({autoPrepare:false});
+test('public access preserves cross-site request checks and video ranges without exposing secrets',async t=>{
+  const s=await fixture(t),legacyPassword='legacy-test-value',apiKey='test-only-api-key',c=configFrom({NODE_ENV:'production',PUBLIC_URL:'https://marylee.example',MARYLEE_ADMIN_PASSWORD:legacyPassword,OPENAI_API_KEY:apiKey});s.setSettings({autoPrepare:false});
   const app=createApp(c,{store:s,startWorker:false});await new Promise(r=>app.server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>app.server.close(r)));
   const root=`http://127.0.0.1:${app.server.address().port}`;
-  assert.equal((await fetch(root+'/api/state')).status,401);
-  assert.equal((await fetch(root+'/api/login',{method:'POST',body:'{}'})).status,403);
-  const login=await fetch(root+'/api/login',{method:'POST',headers:{'Content-Type':'application/json','X-Marylee':'1'},body:JSON.stringify({password})});assert.equal(login.status,200);
-  const cookie=login.headers.get('set-cookie').split(';')[0];
-  const response=await fetch(root+'/api/state',{headers:{cookie}});assert.equal(response.status,200);assert.equal(JSON.stringify(await response.json()).includes(password),false);
-  assert.equal((await fetch(root+'/api/products',{method:'POST',headers:{cookie,'X-Marylee':'1',Origin:'https://other.example'},body:'{}'})).status,403);
+  const response=await fetch(root+'/api/state');assert.equal(response.status,200);assert.equal(response.headers.get('set-cookie'),null);
+  const content=await response.text();assert.equal(content.includes(legacyPassword),false);assert.equal(content.includes(apiKey),false);
+  assert.equal((await fetch(root+'/api/products',{method:'POST',body:'{}'})).status,403);
+  assert.equal((await fetch(root+'/api/products',{method:'POST',headers:{'X-Marylee':'1',Origin:'https://other.example'},body:'{}'})).status,403);
+  const created=await fetch(root+'/api/products',{method:'POST',headers:{'X-Marylee':'1',Origin:c.publicUrl,'Content-Type':'application/json'},body:JSON.stringify({name:'Без входу'})});assert.equal(created.status,201);
   const id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';await writeFile(path.join(s.dir,'media',id+'.mp4'),Buffer.from('0123456789'));s.put('asset',{id,file:id+'.mp4',mime:'video/mp4',name:'test.mp4'});
-  const range=await fetch(root+'/media/'+id,{headers:{cookie,Range:'bytes=2-5'}});assert.equal(range.status,206);assert.equal(await range.text(),'2345');
-  assert.equal((await fetch(root+'/media/'+id,{headers:{cookie,Range:'bytes=50-100'}})).status,416);
-  const token=signSession(password);assert.equal(validSession(token,password),true);assert.equal(validSession(token+'x',password),false);assert.equal(validSession(token,password,Date.now()+8*86400000),false);
+  const range=await fetch(root+'/media/'+id,{headers:{Range:'bytes=2-5'}});assert.equal(range.status,206);assert.equal(await range.text(),'2345');
+  assert.equal((await fetch(root+'/media/'+id,{headers:{Range:'bytes=50-100'}})).status,416);
 });
 
 test('evening scheduling imports Drive before selecting new products and queues once',async t=>{

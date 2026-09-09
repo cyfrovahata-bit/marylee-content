@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createReadStream } from 'node:fs';
 import { stat, readFile, rm } from 'node:fs/promises';
-import { randomUUID, createHmac, timingSafeEqual, createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { configFrom, validateSettings } from './config.js';
 import { Store } from './store.js';
@@ -19,10 +19,6 @@ import { exportDay } from './export.js';
 const PUBLIC=fileURLToPath(new URL('../web/',import.meta.url));
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
 async function body(req,limit=100000) {let size=0,chunks=[];for await(const c of req){size+=c.length;if(size>limit)throw new Error('Забагато даних');chunks.push(c);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{throw new Error('Некоректні дані форми');}}
-const equal=(a,b)=>timingSafeEqual(createHash('sha256').update(a).digest(),createHash('sha256').update(b).digest());
-export function signSession(password,now=Date.now()) {const payload=Buffer.from(JSON.stringify({expires:now+7*86400000,nonce:randomUUID()})).toString('base64url');return payload+'.'+createHmac('sha256',password).update(payload).digest('base64url');}
-export function validSession(token,password,now=Date.now()) {try{const [payload,mac,...rest]=token.split('.');return !rest.length&&equal(mac,createHmac('sha256',password).update(payload).digest('base64url'))&&JSON.parse(Buffer.from(payload,'base64url')).expires>now;}catch{return false;}}
-const cookie=req=>(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('marylee_session='))?.slice(16)||'';
 
 async function serveFile(req,res,filename,mime,{download=false,name='file',cleanup=false}={}) {
   const info=await stat(filename);let start=0,end=info.size-1,status=200;
@@ -40,7 +36,7 @@ async function serveFile(req,res,filename,mime,{download=false,name='file',clean
 }
 
 export function createApp(config,{store=new Store(config.dataDir),ai=new AI(config,store),drive=new Drive(config,store),startWorker=true,renderer}={}) {
-  const worker=new Worker(store,ai,drive,renderer?{renderer}:{});const attempts=new Map();let uploads=0;
+  const worker=new Worker(store,ai,drive,renderer?{renderer}:{});let uploads=0;
   const isBusy=date=>store.activeJobs().some(j=>j.type==='prepare'&&j.target===date);
   const requireIdle=date=>{if(isBusy(date))throw new Error('Цей день зараз готується. Дочекайся завершення перед редагуванням.');};
   function checkProductBusy(id) {
@@ -60,20 +56,8 @@ export function createApp(config,{store=new Store(config.dataDir),ai=new AI(conf
           if(req.headers.origin!==expected)return json(res,403,{error:'Запит з іншого сайту заблоковано'});
         }
       }
-      if(p==='/api/login'&&method==='POST') {
-        const ip=req.socket.remoteAddress,now=Date.now();
-        for(const [key,value] of attempts)if(now-value.since>600000)attempts.delete(key);
-        const a=attempts.get(ip)||{count:0,since:now};
-        if(a.count>=8)return json(res,429,{error:'Забагато спроб входу. Зачекай 10 хвилин.'});
-        const input=await body(req,2000);
-        if(!config.password||typeof input.password!=='string'||!equal(input.password,config.password)){a.count++;attempts.set(ip,a);return json(res,401,{error:'Невірний пароль'});}
-        attempts.delete(ip);res.setHeader('Set-Cookie',`marylee_session=${signSession(config.password)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${config.production?'; Secure':''}`);return json(res,200,{ok:true});
-      }
       const staticFiles={'/':['index.html','text/html; charset=utf-8'],'/app.js':['app.js','text/javascript; charset=utf-8'],'/style.css':['style.css','text/css; charset=utf-8'],'/icon.svg':['icon.svg','image/svg+xml']};
       if(staticFiles[p]&&['GET','HEAD'].includes(method)){const [name,mime]=staticFiles[p];return await serveFile(req,res,path.join(PUBLIC,name),mime);}
-      const local=!config.production&&!config.password&&['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
-      if(!local&&(!config.password||!validSession(cookie(req),config.password)))return json(res,401,{error:'Увійди до Marylee'});
-      if(p==='/api/logout'&&method==='POST'){res.setHeader('Set-Cookie','marylee_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return json(res,200,{ok:true});}
       if(p==='/api/state'&&method==='GET') {
         const date=url.searchParams.get('date')||shiftDate(kyivToday(),1);if(!validDate(date))throw new Error('Некоректна дата');
         const plan=store.get('plan',date);if(plan)for(const item of plan.items){item.fullCaption=captionFor(item,store);item.instruction=itemInstruction(item);}
@@ -81,7 +65,7 @@ export function createApp(config,{store=new Store(config.dataDir),ai=new AI(conf
           dates:store.list('plan').map(p=>p.id).sort(),products:store.list('product').sort((a,b)=>b.createdAt.localeCompare(a.createdAt)),
           assets:store.list('asset').filter(a=>!a.disabled),eligible:eligibleProducts(store,date).map(p=>p.id),
           jobs:store.jobs(),settings:store.settings(),usage:store.usage(),drive:store.get('integration','drive'),driveExport:store.get('drive-export',date),
-          setup:{text:Boolean(config.openaiKey),voice:config.voiceProvider==='elevenlabs'?Boolean(config.elevenKey&&config.elevenVoice):Boolean(config.openaiKey),drive:drive.configured(),password:Boolean(config.password),voiceProvider:config.voiceProvider},notices:store.list('notice')});
+          setup:{text:Boolean(config.openaiKey),voice:config.voiceProvider==='elevenlabs'?Boolean(config.elevenKey&&config.elevenVoice):Boolean(config.openaiKey),drive:drive.configured(),voiceProvider:config.voiceProvider},notices:store.list('notice')});
       }
       if(p==='/api/settings'&&method==='PUT')return json(res,200,store.setSettings(validateSettings(await body(req))));
       if(p==='/api/products'&&method==='POST')return json(res,201,store.put('product',cleanProduct(await body(req))));

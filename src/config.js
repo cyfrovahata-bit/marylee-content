@@ -10,9 +10,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
 export function configFrom(env = process.env) {
   const production = env.NODE_ENV === 'production';
   const dataDir = path.resolve(env.MARYLEE_DATA_DIR || env.RAILWAY_VOLUME_MOUNT_PATH || './data');
-  const password = env.MARYLEE_ADMIN_PASSWORD || '';
   const setupErrors = [];
-  if (production && password.length < 12) setupErrors.push('У Variables задай MARYLEE_ADMIN_PASSWORD: щонайменше 12 символів.');
   if (env.RAILWAY_ENVIRONMENT_ID && !env.RAILWAY_VOLUME_MOUNT_PATH) {
     setupErrors.push('Додай до цього сервісу окремий Railway Volume у /data: каталог має переживати перевстановлення. RAILWAY_VOLUME_MOUNT_PATH Railway задає автоматично після підключення Volume.');
   }
@@ -29,7 +27,7 @@ export function configFrom(env = process.env) {
     return value;
   };
   return {
-    production, dataDir, password, port: Number(env.PORT || 3000),
+    production, dataDir, port: Number(env.PORT || 3000),
     host: production ? '0.0.0.0' : (env.HOST || '127.0.0.1'),
     publicUrl: (env.PUBLIC_URL || '').replace(/\/$/, ''),
     driveParent: parent,
