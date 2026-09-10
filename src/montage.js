@@ -1,13 +1,13 @@
 // Portrait montage, explicit sales voice policy, and original product media only.
 import { mkdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID, createHash } from 'node:crypto';
-import { run, probe, mediaPath, registerOutput, saveAsset } from './files.js';
+import { randomUUID } from 'node:crypto';
+import { run, probe, mediaPath, registerOutput } from './files.js';
 import { productAssets } from './catalog.js';
 import { salesReel, usesVoice } from './content.js';
+import { editorialAssets, pendingMedia } from './editorial.js';
 
 const W=1080,H=1920,FPS=25,FONT='DejaVu Sans';
-const getAsset=(store,id)=>id?store.get('asset',id):null;
 const codec=['-c:v','libx264','-preset','veryfast','-crf','22','-pix_fmt','yuv420p','-r',String(FPS),'-g','50','-keyint_min','50','-sc_threshold','0','-threads','2'];
 const clean=s=>String(s).replace(/[{}\\]/g,'').replace(/[\r\n]+/g,' ').trim();
 function stamp(seconds) {const cs=Math.round(seconds*100),s=Math.floor(cs/100);return `${Math.floor(s/3600)}:${String(Math.floor(s/60)%60).padStart(2,'0')}:${String(s%60).padStart(2,'0')}.${String(cs%100).padStart(2,'0')}`;}
@@ -51,26 +51,11 @@ export async function card(store,{asset=null,title='',detail='',height=H,name='s
   await run('ffmpeg',args);return registerOutput(store,out,{kind:'image',name});
 }
 
-// Persist each illustration before voice/render work: retries reuse it for free.
-async function editorialAssets(store,ai,plan,item,dir) {
-  const selected=item.selectedAssetIds.map(id=>store.get('asset',id)).filter(a=>a&&!a.disabled&&!a.productId&&['ai','editorial'].includes(a.source));
-  if(selected.length)return selected;
-  if(!item.imagePrompt?.trim())throw new Error('Для корисного Reel потрібні приклади образів. Натисни «Перегенерувати весь матеріал».');
-  const signature=createHash('sha256').update(JSON.stringify([item.imagePrompt,item.imageGeneration||0])).digest('hex');
-  const cached=getAsset(store,item.illustrationId);
-  if(cached&&!cached.disabled&&item.illustrationSignature===signature)return [cached];
-  const input=path.join(dir,'looks.png');await writeFile(input,await ai.image(item.imagePrompt,{comparison:true}));
-  const image=await saveAsset(store,input,{source:'ai',name:`${plan.id}-${item.id}-образи.png`});
-  image.layout='diptych';store.put('asset',image);
-  item.illustrationId=image.id;item.illustrationSignature=signature;store.put('plan',plan);
-  return [image];
-}
-
 export async function renderReel(store,ai,plan,item,dir) {
   if(item.lines.length<2)throw new Error('Спочатку підготуй сценарій: щонайменше два рядки.');
   const product=item.productId?store.get('product',item.productId):null;
   const available=product?productAssets(store,product,{originalOnly:true}):[];
-  let selected=product?item.selectedAssetIds.map(id=>available.find(a=>a.id===id)).filter(Boolean):await editorialAssets(store,ai,plan,item,dir);
+  let selected=product?item.selectedAssetIds.map(id=>available.find(a=>a.id===id)).filter(Boolean):editorialAssets(store,item);
   if(!selected.length)selected=available.filter(a=>a.kind==='video').slice(0,4);
   if(!selected.length)selected=available.filter(a=>a.kind==='image').slice(0,6);
   if(!selected.length)throw new Error('Для Reel потрібні фото або відео');
@@ -112,7 +97,7 @@ const srtTime=s=>{const ms=Math.round(s*1000);return `${String(Math.floor(ms/360
 
 export async function renderCarousel(store,plan,item,dir,provided=null) {
   const product=item.productId?store.get('product',item.productId):null;
-  const available=provided||(product?productAssets(store,product,{originalOnly:true}):[getAsset(store,plan.items.find(i=>i.id==='morning')?.illustrationId)].filter(Boolean));
+  const available=provided||(product?productAssets(store,product,{originalOnly:true}):editorialAssets(store,plan.items.find(i=>i.id==='morning')));
   let photos=item.selectedAssetIds.map(id=>available.find(a=>a.id===id)).filter(Boolean);
   if(!photos.length)photos=available.filter(a=>a.kind==='image').slice(0,6);
   if(!photos.length&&available.some(a=>a.kind==='video'))photos=available.filter(a=>a.kind==='video').slice(0,1);
@@ -127,6 +112,8 @@ export async function renderCarousel(store,plan,item,dir,provided=null) {
   item.mediaAssetIds=photos.map(a=>a.id);item.outputIds=outputs;item.coverId=outputs[0];return item;
 }
 export async function renderItem(store,ai,plan,item) {
+  const pending=pendingMedia(store,plan,item);
+  if(pending){item.status=pending.status;item.notes=[pending.message];item.outputIds=[];item.coverId=null;item.error=null;return item;}
   const dir=path.join(store.dir,'work',randomUUID());await mkdir(dir,{recursive:true});
   try {
     if(item.purpose==='repost') {
@@ -139,7 +126,7 @@ export async function renderItem(store,ai,plan,item) {
       const product=item.productId?store.get('product',item.productId):null;
       const assets=product?productAssets(store,product,{originalOnly:true}):[];
       const morning=plan.items.find(i=>i.id==='morning');
-      const asset=product?(item.selectedAssetIds.map(id=>assets.find(a=>a.id===id)).find(Boolean)||assets[0]):getAsset(store,morning?.illustrationId)||getAsset(store,morning?.mediaAssetIds?.[0]);
+      const asset=product?(item.selectedAssetIds.map(id=>assets.find(a=>a.id===id)).find(Boolean)||assets[0]):editorialAssets(store,morning)[0];
       if(item.purpose==='poll'&&!asset)throw new Error('Спочатку підготуй приклади образів у ранковому Reel');
       const detail=product&&product.price!==null?`${product.price} грн${product.sku?' · Арт. '+product.sku:''}`:item.purpose==='poll'?'':item.caption;
       const output=await card(store,{asset,title:item.purpose==='poll'?item.pollQuestion:item.title,detail,poll:item.purpose==='poll',focus:item.purpose==='detail'?item.detailFocus||'upper':'full',name:`${item.time.replace(':','-')}-story.jpg`},dir);

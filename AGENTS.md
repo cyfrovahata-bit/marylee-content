@@ -7,6 +7,7 @@ Standalone Ukrainian clothing content app. Repository: `cyfrovahata-bit/marylee-
 - Do not modify `tiktok-chanel`, its branch/deployment, or the `TikTok Channel` Drive folder.
 - Only the repurposed Railway **YouTubeStories** service belongs to Marylee. IDs and code paths are in `docs/PROJECT-MAP.md`.
 - Manual social publication only. No password login (owner explicitly removed it).
+- Images API is disabled, including old queued jobs. Generate drawing prompts only; the owner uploads a two-look illustration, then the app renders the Reel and poll. Missing illustrations must not block product posts.
 - Sales/product Reels always have **no narration**, regardless of settings. Style tips use the Marylee voice profile.
 - Never use AI imagery as a photo of the product being sold. Never expose supplier/drop prices or contacts in captions.
 - Respect the configured daily budget and generation caps. Preserve originals, completed batches and paid-generation checkpoints.

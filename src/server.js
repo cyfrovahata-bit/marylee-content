@@ -7,11 +7,12 @@ import { randomUUID } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { configFrom, validateSettings } from './config.js';
 import { Store } from './store.js';
-import { AI, captionFor } from './ai.js';
+import { AI, captionFor, factBlock } from './ai.js';
 import { Drive } from './drive.js';
 import { Worker } from './worker.js';
 import { cleanProduct, productAssets } from './catalog.js';
-import { createPlan, eligibleProducts, itemInstruction } from './planner.js';
+import { createPlan, eligibleProducts, itemInstruction, itemGoal } from './planner.js';
+import { IMAGE_API_DISABLED, drawingPrompt, imageSource, illustrationSignature, resetIllustration, invalidateDependents } from './editorial.js';
 import { kyivToday, shiftDate, validDate } from './kyiv.js';
 import { saveAsset, boundedDownload, mediaPath } from './files.js';
 import { exportDay } from './export.js';
@@ -60,12 +61,12 @@ export function createApp(config,{store=new Store(config.dataDir),ai=new AI(conf
       if(staticFiles[p]&&['GET','HEAD'].includes(method)){const [name,mime]=staticFiles[p];return await serveFile(req,res,path.join(PUBLIC,name),mime);}
       if(p==='/api/state'&&method==='GET') {
         const date=url.searchParams.get('date')||shiftDate(kyivToday(),1);if(!validDate(date))throw new Error('Некоректна дата');
-        const plan=store.get('plan',date);if(plan)for(const item of plan.items){item.fullCaption=captionFor(item,store);item.instruction=itemInstruction(item);}
+        const plan=store.get('plan',date);if(plan)for(const item of plan.items){item.fullCaption=captionFor(item,store);item.instruction=itemInstruction(item);item.goal=itemGoal(item);const source=imageSource(plan,item);item.imageSourceId=source?.id||null;item.drawingPrompt=drawingPrompt(source);item.productFacts=factBlock(item.productId?store.get('product',item.productId):null);}
         return json(res,200,{today:kyivToday(),tomorrow:shiftDate(kyivToday(),1),date,plan,
           dates:store.list('plan').map(p=>p.id).sort(),products:store.list('product').sort((a,b)=>b.createdAt.localeCompare(a.createdAt)),
           assets:store.list('asset').filter(a=>!a.disabled),eligible:eligibleProducts(store,date).map(p=>p.id),
           jobs:store.jobs(),settings:store.settings(),usage:store.usage(),drive:store.get('integration','drive'),driveExport:store.get('drive-export',date),
-          setup:{text:Boolean(config.openaiKey),voice:config.voiceProvider==='elevenlabs'?Boolean(config.elevenKey&&config.elevenVoice):Boolean(config.openaiKey),drive:drive.configured(),voiceProvider:config.voiceProvider},notices:store.list('notice')});
+          setup:{text:Boolean(config.openaiKey),imageGeneration:false,voice:config.voiceProvider==='elevenlabs'?Boolean(config.elevenKey&&config.elevenVoice):Boolean(config.openaiKey),drive:drive.configured(),voiceProvider:config.voiceProvider},notices:store.list('notice')});
       }
       if(p==='/api/settings'&&method==='PUT')return json(res,200,store.setSettings(validateSettings(await body(req))));
       if(p==='/api/products'&&method==='POST')return json(res,201,store.put('product',cleanProduct(await body(req))));
@@ -125,15 +126,38 @@ export function createApp(config,{store=new Store(config.dataDir),ai=new AI(conf
         if(input.itemId&&plan.items.find(i=>i.id===input.itemId).status==='posted')throw new Error('Опублікований матеріал не перегенеровується');
         return json(res,202,store.enqueue('prepare',plan.id,{mode,...(input.itemId?{itemId:input.itemId}:{})}));
       }
+      if((m=/^\/api\/plans\/(\d{4}-\d{2}-\d{2})\/items\/([a-z-]+)\/illustration$/.exec(p))&&method==='POST') {
+        const date=m[1],id=m[2];requireIdle(date);
+        const plan=store.get('plan',date),item=plan?.items.find(i=>i.id===id);
+        if(!item||item.purpose!=='useful'||item.productId)throw new Error('Зображення за промптом завантажується в ранкову пораду');
+        if(['posted','skipped'].includes(item.status))throw new Error('Цей матеріал не можна змінювати');
+        if(!item.imagePrompt?.trim())throw new Error('Спочатку сформуй тексти й промпт дня');
+        if(uploads>=2)return json(res,429,{error:'Дочекайся завершення попереднього завантаження'});
+        const name=url.searchParams.get('name')||'',ext=path.extname(name).toLowerCase();
+        if(!['.jpg','.jpeg','.png','.webp'].includes(ext))throw new Error('Завантаж зображення JPG, PNG або WebP з двома образами');
+        const revision=item.revision,temp=path.join(store.dir,'work',randomUUID()+ext);uploads++;
+        try {
+          await boundedDownload(req,temp,config.maxUploadBytes);
+          const asset=await saveAsset(store,temp,{name,source:'ai'});
+          if(asset.kind!=='image')throw new Error('Потрібне зображення, а не відео');
+          asset.layout='diptych';store.put('asset',asset);
+          requireIdle(date);const current=store.get('plan',date),target=current?.items.find(i=>i.id===id);
+          if(!target||target.revision!==revision||['posted','skipped'].includes(target.status))throw new Error('Матеріал змінився під час завантаження. Зображення збережено в студії; перевір промпт перед вибором.');
+          target.selectedAssetIds=[asset.id];target.illustrationId=asset.id;target.illustrationSignature=illustrationSignature(target);
+          target.status='draft';target.revision++;target.outputIds=[];target.coverId=null;target.notes=[];invalidateDependents(current,target);store.put('plan',current);
+          return json(res,201,{asset,job:store.enqueue('prepare',date,{mode:'render'})});
+        }finally{uploads--;await rm(temp,{force:true});}
+      }
       if((m=/^\/api\/plans\/(\d{4}-\d{2}-\d{2})\/items\/([a-z-]+)$/.exec(p))&&method==='PUT') {
         requireIdle(m[1]);const plan=store.get('plan',m[1]),item=plan?.items.find(i=>i.id===m[2]);if(!item)throw new Error('Матеріал не знайдено');
         if(item.status==='posted')throw new Error('Опублікований матеріал збережено в історії й не редагується');
-        const input=await body(req);let rerender=false;const previousCaption=item.caption;
+        const input=await body(req);let rerender=false;const previousCaption=item.caption,promptChanged=item.purpose==='useful'&&'imagePrompt' in input&&input.imagePrompt!==item.imagePrompt;
         for(const [key,max] of [['title',140],['caption',3000],['pollQuestion',120],['imagePrompt',2500]])if(key in input){if(typeof input[key]!=='string'||input[key].length>max)throw new Error(`Перевір ${key}`);if((['title','pollQuestion','imagePrompt'].includes(key)||(key==='caption'&&item.kind==='story'))&&input[key]!==item[key])rerender=true;item[key]=input[key];}
         for(const [key,max] of [['lines',6],['selectedAssetIds',6],['keywords',20],['hashtags',5],['pollOptions',2]])if(key in input){if(!Array.isArray(input[key])||input[key].length>max||input[key].some(v=>typeof v!=='string'||v.length>2200))throw new Error(`Перевір ${key}`);if(['lines','selectedAssetIds'].includes(key)&&JSON.stringify(item[key])!==JSON.stringify(input[key]))rerender=true;item[key]=input[key];}
         if(item.selectedAssetIds.some(id=>{const a=store.get('asset',id);return !a||a.disabled||(item.productId?a.productId!==item.productId||a.source!=='original':Boolean(a.productId));}))throw new Error('Медіафайл не належить цьому матеріалу');
         item.hashtags=[...new Set(item.hashtags.map(t=>'#'+t.replace(/^#+/,'').toLowerCase().replace(/[^\p{L}\p{N}_]/gu,'')))].filter(t=>t.length>1);
-        if(rerender){item.status='draft';item.revision++;for(const child of plan.items.filter(i=>i.dependsOn===item.id&&i.status!=='posted'))child.status='draft';}
+        if(promptChanged)resetIllustration(item);
+        if(rerender){item.status='draft';item.revision++;invalidateDependents(plan,item);}
         if(item.kind!=='story'&&item.caption&&item.caption!==previousCaption)store.put('copy-history',{id:randomUUID(),planId:plan.id,slotId:item.id,caption:item.caption,createdAt:new Date().toISOString()});
         return json(res,200,store.put('plan',plan));
       }
@@ -154,7 +178,7 @@ export function createApp(config,{store=new Store(config.dataDir),ai=new AI(conf
         const file=m[2]&&asset.thumbnail?asset.thumbnail:asset.file;
         return await serveFile(req,res,mediaPath(store,file),m[2]&&asset.thumbnail?'image/jpeg':asset.mime,{download:url.searchParams.has('download'),name:asset.name});
       }
-      if(p==='/api/image'&&method==='POST') {const input=await body(req);if(typeof input.prompt!=='string'||input.prompt.length<10||input.prompt.length>2500)throw new Error('Опиши ілюстрацію: 10–2500 символів');return json(res,202,store.enqueue('image',randomUUID(),{prompt:input.prompt}));}
+      if(p==='/api/image'&&method==='POST')return json(res,410,{error:IMAGE_API_DISABLED});
       if(p==='/api/drive/setup'&&method==='POST')return json(res,202,store.enqueue('drive-setup','drive'));
       if(p==='/api/drive/import'&&method==='POST')return json(res,202,store.enqueue('import','drive'));
       if(p==='/api/drive/export'&&method==='POST'){const input=await body(req);if(!validDate(input.date))throw new Error('Некоректна дата');return json(res,202,store.enqueue('export-drive',input.date));}

@@ -1,10 +1,9 @@
-import { writeFile, rm } from 'node:fs/promises';
-import path from 'node:path';
+import { rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { kyivToday, kyivMinutes, shiftDate } from './kyiv.js';
 import { createPlan, eligibleProducts } from './planner.js';
 import { renderItem } from './montage.js';
-import { saveAsset } from './files.js';
+import { IMAGE_API_DISABLED, resetIllustration, invalidateDependents } from './editorial.js';
 import { exportDay } from './export.js';
 
 const errorMessage=error=>['TimeoutError','AbortError'].includes(error.name)
@@ -20,8 +19,8 @@ export function applyCopy(plan,values,store) {
       pollQuestion:value.pollQuestion,pollOptions:value.pollOptions,imagePrompt:value.imagePrompt,
       detailFocus:value.detailFocus||'full',
       selectedAssetIds:item.purpose==='useful'?[]:allowed.length?[...new Set(allowed)]:item.selectedAssetIds,status:'draft',revision:item.revision+1});
-    if(item.purpose==='useful')item.imageGeneration=(item.imageGeneration||0)+1;
-    for(const child of plan.items.filter(i=>i.dependsOn===item.id&&i.status!=='posted'))child.status='draft';
+    if(item.purpose==='useful'){item.imageGeneration=(item.imageGeneration||0)+1;resetIllustration(item);}
+    invalidateDependents(plan,item);
   }
   store.put('plan',plan);
 }
@@ -56,13 +55,10 @@ export class Worker {
       if(job.type==='prepare') result=await this.prepare(job,progress);
       else if(job.type==='import')result=await this.drive.importProducts(progress);
       else if(job.type==='drive-setup')result=await this.drive.setup();
-      else if(job.type==='image') {
-        progress('Створюю редакційну ілюстрацію',15);
-        const bytes=await this.ai.image(job.payload.prompt),temp=path.join(this.store.dir,'work',randomUUID()+'.png');
-        try {await writeFile(temp,bytes);result=await saveAsset(this.store,temp,{name:'ai-editorial.png',source:'ai'});}finally{await rm(temp,{force:true});}
-      } else if(job.type==='export-drive')result=await this.toDrive(job.target,progress);
+      else if(job.type==='image')throw new Error(IMAGE_API_DISABLED);
+      else if(job.type==='export-drive')result=await this.toDrive(job.target,progress);
       else throw new Error('Невідоме завдання');
-      this.store.updateJob(job,{status:'done',progress:100,message:'Готово',result});
+      this.store.updateJob(job,{status:'done',progress:100,message:result?.waitingForImages?'Товарні матеріали готові. Завантаж зображення для ранкової поради.':'Готово',result});
     }catch(e){this.store.updateJob(job,{status:'error',message:errorMessage(e)});}
     finally{this.busy=false;}
   }
@@ -98,7 +94,7 @@ export class Worker {
         if(item.productId&&!this.store.get('product',item.productId)?.active)throw new Error('Товар знято з продажу. Пропусти цей слот або заміни план.');
         await this.renderer(this.store,this.ai,plan,item);this.store.put('plan',plan);
         // Reposts always point to the newest prepared parent.
-        for(const child of plan.items.filter(i=>(i.dependsOn===item.id||(item.id==='morning'&&i.purpose==='poll'))&&i.status!=='posted'))child.status='draft';
+        if(item.status==='ready')invalidateDependents(plan,item);
         this.store.put('plan',plan);
       }catch(e){item.status='error';item.error=errorMessage(e);this.store.put('plan',plan);throw e;}
     }
@@ -109,7 +105,7 @@ export class Worker {
       await this.renderer(this.store,this.ai,plan,child);this.store.put('plan',plan);
     }
     if(this.store.settings().driveAutoExport&&this.drive.configured()&&plan.items.every(i=>['ready','posted','skipped'].includes(i.status)))this.store.enqueue('export-drive',plan.id);
-    return {date:plan.id};
+    return {date:plan.id,waitingForImages:plan.items.some(i=>i.status==='awaiting-image')};
   }
   async toDrive(date,progress) {
     progress('Збираю ZIP дня',10);const zip=await exportDay(this.store,date);

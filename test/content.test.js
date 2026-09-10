@@ -71,3 +71,10 @@ test('full regeneration replaces one unpublished item and refreshes its repost; 
   assert.deepEqual(saved.items.find(i=>i.id==='share-evening').outputIds,['new-video']);
   assert.deepEqual(saved.items.filter(i=>!['evening','share-evening'].includes(i.id)),unrelated);assert.deepEqual(s.list('asset'),originals);
 });
+
+test('direct image generation is disabled before network or budget use',async t=>{
+  const s=await fixture(t);let calls=0;
+  const ai=new AI(configFrom({OPENAI_API_KEY:'test'}),s,async()=>{calls++;throw new Error('Unexpected image API request');});
+  await assert.rejects(ai.image('A fashion comparison'),/Малювання через API вимкнено/);
+  assert.equal(calls,0);assert.equal(s.usage().counts.image||0,0);
+});

@@ -5,6 +5,7 @@ import { exists, mediaPath } from './files.js';
 import { numbersToWords } from './num2words-uk.js';
 import { productAssets } from './catalog.js';
 import { captionLimit, publicProduct, reelFacts, salesReel, slotBrief, VOICE_STYLE } from './content.js';
+import { IMAGE_API_DISABLED } from './editorial.js';
 
 const str={type:'string'};
 const itemSchema={type:'object',additionalProperties:false,properties:{
@@ -170,12 +171,5 @@ export class AI {
     if(bytes.length<100) throw new Error('Сервіс повернув порожню озвучку');
     await writeFile(file+'.tmp',bytes);await rename(file+'.tmp',file);return file;
   }
-  async image(prompt,{comparison=false}={}) {
-    if(!this.config.openaiKey) throw new Error('Додай OPENAI_API_KEY для генерації ілюстрацій');
-    if(typeof prompt!=='string'||prompt.length<10||prompt.length>2500) throw new Error('Промпт має містити 10–2500 символів');
-    this.store.reserve('image',1,this.config.imageReserve);
-    const composition=comparison?'Portrait fashion diptych: EXACTLY TWO equally wide panels, LEFT and RIGHT, split at the exact center. In each panel, a full-length editorial photograph of the same adult woman in the described complete outfit, from head to shoes. Each woman centered within her own panel, with generous head and shoe margins. Both neutral warm studio backgrounds. Clear wearable clothes, realistic anatomy, polished magazine photography. No panels within panels.':'';
-    const res=await this.request('https://api.openai.com/v1/images/generations',{method:'POST',headers:{Authorization:`Bearer ${this.config.openaiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:this.config.imageModel,prompt:`Editorial fashion illustration for styling education, never presented as a real product for sale. No text, logos or watermarks. ${composition} ${prompt}`,n:1,size:'1024x1536',quality:comparison?'medium':'low',output_format:'png'})},240000);
-    const data=await res.json();if(!data.data?.[0]?.b64_json) throw new Error('ШІ не повернув ілюстрацію');return Buffer.from(data.data[0].b64_json,'base64');
-  }
+  async image() {throw new Error(IMAGE_API_DISABLED);}
 }
