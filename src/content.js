@@ -36,7 +36,9 @@ export function slotBrief(item,plan) {
     'useful-photo':'Окрема коротка ідея стилізації, відмінна від ранкового пояснення. Візьми ілюстрацію ранкового Reel, не видавай її за реальний товар.',
   };
   return {task:briefs[item.purpose]||briefs.extra,
-    ...(item.purpose==='useful'?{topic:plan.topic}:{}),
+    // Old saved plans described abstract three-step diagrams. The topic stays,
+    // but the new visual brief is always a concrete two-outfit comparison.
+    ...(item.purpose==='useful'?{topic:{id:plan.topic.id,title:plan.topic.title,brief:'Порівняй два повні образи з однією чітко видимою зміною. Рівно два образи, не три кроки й не абстрактна схема.'}}:{}),
     version:(item.revision||0)+1,
     previous:item.caption?{title:item.title,caption:item.caption}:null};
 }

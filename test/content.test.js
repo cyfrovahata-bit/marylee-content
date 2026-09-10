@@ -20,7 +20,7 @@ async function fixture(t) {
 test('public copy excludes wholesale data and sales briefs never inherit the morning topic',()=>{
   const safe=publicProduct({id:'p',name:'Лляний костюм',price:1170,description:'Тканина: льон\nЦіна 1170 грн\nДроп ціна 935 грн\nhttps://supplier.example\nКишені на шортах',notes:'Private operational note'});
   assert.doesNotMatch(JSON.stringify(safe),/935|1170|supplier|Private/);assert.match(safe.description,/льон/);assert.match(safe.description,/Кишені/);
-  const plan={topic:{brief:'COLOR_ACCENT_TOPIC'}};
+  const plan={topic:{id:'color-accent',title:'COLOR_ACCENT_TOPIC'}};
   for(const purpose of ['sale','product','detail','teaser'])assert.doesNotMatch(JSON.stringify(slotBrief({purpose},plan)),/COLOR_ACCENT_TOPIC/);
   assert.match(JSON.stringify(slotBrief({purpose:'useful'},plan)),/COLOR_ACCENT_TOPIC/);
 });

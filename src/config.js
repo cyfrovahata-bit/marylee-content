@@ -33,7 +33,7 @@ export function configFrom(env = process.env) {
     driveParent: parent,
     googleClient: env.GOOGLE_OAUTH_CLIENT_ID || '', googleSecret: env.GOOGLE_OAUTH_CLIENT_SECRET || '',
     googleRefresh: env.GOOGLE_OAUTH_REFRESH_TOKEN || '',
-    openaiKey: env.OPENAI_API_KEY || '', textModel: env.MARYLEE_TEXT_MODEL || 'gpt-4.1-mini',
+    openaiKey: env.OPENAI_API_KEY || '', textModel: env.MARYLEE_TEXT_MODEL || 'gpt-4.1',
     imageModel: env.MARYLEE_IMAGE_MODEL || 'gpt-image-1',
     // Marylee has its own voice profile; legacy YouTube/TikTok TTS settings
     // must not silently select the old channel voice.

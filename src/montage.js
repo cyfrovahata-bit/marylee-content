@@ -80,7 +80,7 @@ export async function renderReel(store,ai,plan,item,dir) {
     const duration=voice?Number((await probe(voice)).format.duration)+.18:sale?(n===item.lines.length-1?4.2:3.6):Math.max(4,Math.min(9,text.split(/\s+/).length/2.7));
     if(!Number.isFinite(duration)||duration<=0||duration>60)throw new Error('Перевір довжину сцени озвучки');
     const sub=path.join(dir,`scene-${n}.ass`),out=path.join(dir,`scene-${n}.mp4`),asset=selected[n%selected.length];
-    const title=sale&&n===item.lines.length-1&&product.price!==null?`${product.price} грн${product.sku?' · Арт. '+product.sku:''}`:item.title;
+    const title=sale&&product&&n===item.lines.length-1&&product.price!==null?`${product.price} грн${product.sku?' · Арт. '+product.sku:''}`:item.title;
     await writeFile(sub,captionAss(text,duration,{title,sale,scene:n,aiIllustration:asset.source==='ai'}));
     const args=['-y','-filter_threads','1','-filter_complex_threads','1','-threads','1'];
     if(asset.kind==='image')args.push('-loop','1');else args.push('-stream_loop','-1');
@@ -90,7 +90,7 @@ export async function renderReel(store,ai,plan,item,dir) {
     let visual=`${crop}scale=${W}:1350:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:310:color=0xf4f0e8,setsar=1`;
     if(asset.kind==='image')visual+=`,zoompan=z='1.01+0.025*min(on/${Math.max(1,Math.round(duration*FPS)-1)},1)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=${W}x${H}:fps=${FPS}`;
     else visual+=`,fps=${FPS}`;
-    const videoFilter=`[0:v]${visual},ass=${sub},fade=t=in:st=0:d=0.12[out]`;
+    const videoFilter=`[0:v]${visual},ass=${sub}${n?',fade=t=in:st=0:d=0.12':''}[out]`;
     if(voice)args.push('-i',voice);else args.push('-f','lavfi','-i','anullsrc=r=48000:cl=stereo');
     args.push('-filter_complex',videoFilter,'-map','[out]','-map','1:a',...codec,'-c:a','aac','-ar','48000','-ac','2','-b:a','192k','-af','apad','-t',String(duration),'-movflags','+faststart',out);
     await run('ffmpeg',args);segments.push(out);

@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
-const state={data:null,date:'',tab:'plan',editingProduct:null,editingItem:null,assetOrder:[],formBusy:false};
+const state={data:null,date:new URLSearchParams(location.search).get('date')||'',tab:'plan',editingProduct:null,editingItem:null,assetOrder:[],formBusy:false};
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels={draft:'Чернетка',ready:'Готово',posted:'Опубліковано',error:'Потрібна дія',skipped:'Пропущено',interrupted:'Перезапуск',queued:'У черзі',running:'Готується',done:'Готово'};
 const kindLabels={reel:'REEL',carousel:'КАРУСЕЛЬ',story:'СТОРІЗ'};
@@ -20,7 +20,7 @@ function item(id){return state.data?.plan?.items.find(i=>i.id===id);}
 function busy(){return state.data?.jobs.some(j=>j.type==='prepare'&&j.target===state.date&&['queued','running'].includes(j.status));}
 async function refresh({quiet=false}={}) {
   try {
-    state.data=await api('/api/state'+(state.date?'?date='+encodeURIComponent(state.date):''));state.date=state.data.date;
+    state.data=await api('/api/state'+(state.date?'?date='+encodeURIComponent(state.date):''));state.date=state.data.date;history.replaceState(null,'','?date='+encodeURIComponent(state.date));
     render();
   }catch(e){if(!quiet)toast(e.message,true);}
 }
@@ -68,7 +68,7 @@ function openItem(id){const i=item(id);if(!i)return;state.editingItem=id;const f
   f.elements.lines.value=i.lines.join('\n');f.elements.pollOptions.value=(i.pollOptions||[]).join('\n');f.elements.keywords.value=i.keywords.join(', ');f.elements.hashtags.value=i.hashtags.join(' ');
   $('#item-heading').textContent=i.title||i.label;$('#item-slot').textContent=i.time+' · '+kindLabels[i.kind]+' · '+labels[i.status];$('#poll-fields').hidden=i.purpose!=='poll';
   const preview=i.outputIds.map(asset).find(a=>a?.kind==='video')||asset(i.coverId)||i.outputIds.map(asset).find(a=>a?.kind==='image');
-  $('#item-media').innerHTML=preview?(preview.kind==='video'?`<video src="${url(preview.id)}" controls playsinline preload="metadata"></video>`:`<img src="${url(preview.id)}" alt="${escape(i.title)}">`):'<div class="empty-state"><div class="empty-icon">✧</div><p>Тут буде готовий матеріал</p></div>';
+  $('#item-media').innerHTML=preview?(preview.kind==='video'?`<video src="${url(preview.id)}" ${i.coverId?`poster="${url(i.coverId)}"`:""} controls playsinline preload="metadata"></video>`:`<img src="${url(preview.id)}" alt="${escape(i.title)}">`):'<div class="empty-state"><div class="empty-icon">✧</div><p>Тут буде готовий матеріал</p></div>';
   $('#item-downloads').innerHTML=[...new Set([...i.outputIds,i.coverId].filter(Boolean))].map(asset).filter(Boolean).map(a=>`<a class="secondary" href="${url(a.id)}?download=1">↓ ${a.id===i.coverId?'Обкладинка':a.kind==='video'?'Відео':a.kind==='image'?'Фото':escape(a.name)}</a>`).join('');
   $('#item-notes').textContent=(i.outputIds.length&&i.renderedRevision!==i.revision?'Є правки, які ще не змонтовано. Натисни «Перемонтувати». ':'')+(i.notes||[]).join(' ');$('#item-instruction').textContent=i.instruction;
   $('#script-field').hidden=i.kind!=='reel';$('#script-label').textContent=i.productId?'Написи на відео · без озвучки':'Озвучка · один рядок = одна сцена';$('#keywords-field').hidden=i.kind!=='reel';$('#hashtags-field').hidden=i.kind==='story';$('#caption-limit').textContent=i.kind==='reel'?'Короткий опис із параметрами — до 250 символів. Далі ключові слова та хештеги.':i.kind==='story'?'Одна коротка фраза — до 90 символів.':'';
