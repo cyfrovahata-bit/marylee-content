@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, copyFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, copyFile, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Store } from '../src/store.js';
@@ -19,20 +19,20 @@ test('full day renders real MP4/JPEG/SRT/ZIP, preserves portrait dimensions and 
   const A=s.put('product',cleanProduct({name:'Тестова сукня · приклад',sku:'DEMO-A',price:1290,sizes:'S, M, L',ready:true}));
   const B=s.put('product',cleanProduct({name:'Тестовий жакет · приклад',sku:'DEMO-B',price:1590,sizes:'S, M',ready:true}));
   const input=path.join(dir,'work','source.png'),clip=path.join(dir,'work','motion.mp4'),voice=path.join(dir,'work','test-voice.mp3');
-  await run('ffmpeg',['-y','-f','lavfi','-i','color=c=0xd5c3ad:s=640x900','-frames:v','1','-threads','1',input]);
+  await run('ffmpeg',['-y','-f','lavfi','-i','color=c=0xd5c3ad:s=1536x1024','-frames:v','1','-threads','1',input]);
   await run('ffmpeg',['-y','-f','lavfi','-i','testsrc2=s=360x640:r=25:d=1','-c:v','libx264','-threads','1','-pix_fmt','yuv420p',clip]);
   await run('ffmpeg',['-y','-f','lavfi','-i','sine=frequency=220:duration=0.6','-c:a','libmp3lame',voice]);
   await saveAsset(s,input,{name:'photo.png',productId:A.id});await saveAsset(s,clip,{name:'video.mp4',productId:B.id});
   const plan=createPlan(s,'2026-09-10',[A.id,B.id]);
   const titles=['Один акцент — інший настрій','Збережи кольорову підказку','Яка палітра ближча?','Знайомство з сукнею','Розглянь деталь','Вечірня примірка ідей','Жакет у русі','Поділись вечірнім образом'];
   for(const [n,i] of plan.items.entries()) {i.title=titles[n];i.caption='Тестовий матеріал для перевірки застосунку. Не є товарною публікацією.';i.lines=['Спокійна основа.','Додай кольоровий акцент.'];i.hashtags=i.kind==='story'?[]:['#стиль','#marylee','#образ','#одяг','#україна'];i.pollQuestion='Яка палітра ближча?';i.pollOptions=['Спокійна','Контрастна'];}
-  s.put('plan',plan);const ai={config:{},voice:async()=>voice};const worker=new Worker(s,ai,{configured:()=>false});
+  plan.items[0].imagePrompt='Two full-length outfits side by side, left with flats, right with boots.';s.put('plan',plan);let images=0,voices=0,failVoice=true;const ai={config:{},image:async()=>{images++;return readFile(mediaPath(s,s.list('asset').find(a=>a.productId===A.id).file));},voice:async()=>{voices++;if(failVoice){failVoice=false;throw new Error('Voice interrupted after image');}return voice;}};const worker=new Worker(s,ai,{configured:()=>false});
   const job=s.enqueue('prepare',plan.id);await worker.tick();
-  assert.equal(s.job(job.id).status,'done',s.job(job.id).message);
+  assert.equal(s.job(job.id).status,'error');assert.equal(images,1);assert.ok(s.get('plan',plan.id).items[0].illustrationId);const retry=s.enqueue('prepare',plan.id);await worker.tick();assert.equal(s.job(retry.id).status,'done',s.job(retry.id).message);assert.equal(images,1,'completed illustration is reused after a voice failure');assert.equal(voices,3,'only two morning lines plus the failed call; no sales voice calls');
   const ready=s.get('plan',plan.id);assert.ok(ready.items.every(i=>i.status==='ready'));
   for(const id of ['morning','evening']) {
     const reel=ready.items.find(i=>i.id===id),media=s.get('asset',reel.outputIds[0]);const info=await probe(mediaPath(s,media.file));
-    const v=info.streams.find(x=>x.codec_type==='video'),audio=info.streams.find(x=>x.codec_type==='audio');assert.equal(v.width,1080);assert.equal(v.height,1920);assert.equal(v.pix_fmt,'yuv420p');assert.equal(audio.codec_name,'aac');assert.equal(Number(audio.sample_rate),48000);assert.equal(audio.channels,2);assert.ok(Number(info.format.duration)>=1.8);
+    const v=info.streams.find(x=>x.codec_type==='video'),audio=info.streams.find(x=>x.codec_type==='audio');assert.equal(v.width,1080);assert.equal(v.height,1920);assert.equal(v.pix_fmt,'yuv420p');assert.equal(audio.codec_name,'aac');assert.equal(Number(audio.sample_rate),48000);assert.equal(audio.channels,2);assert.ok(Math.abs(Number(info.format.duration)-reel.duration)<.2);
   }
   assert.deepEqual(ready.items.find(i=>i.id==='share-evening').outputIds,ready.items.find(i=>i.id==='evening').outputIds);
   const zip=await exportDay(s,plan.id);const listing=(await run('unzip',['-Z1',zip])).stdout;assert.match(listing,/09-00-morning\/1.mp4|09-00-morning\/01.mp4/);assert.match(listing,/12-00-poll\/instructions.txt/);assert.match(listing,/START-HERE.txt/);
@@ -40,10 +40,10 @@ test('full day renders real MP4/JPEG/SRT/ZIP, preserves portrait dimensions and 
   const productPhoto=s.list('asset').find(a=>a.productId===A.id);
   const photoReel={...ready.items.find(i=>i.id==='evening'),productId:A.id,selectedAssetIds:[productPhoto.id],notes:[]};
   const work=path.join(dir,'work','photo-reel');await mkdir(work,{recursive:true});
-  await renderReel(s,ai,ready,photoReel,work);assert.match(photoReel.notes.join(' '),/Не розраховуй на монетизацію/);
+  await renderReel(s,ai,ready,photoReel,work);assert.equal(photoReel.voiceUsed,false);assert.match(photoReel.notes.join(' '),/Без озвучки/);assert.equal(voices,3);const silence=await run('ffmpeg',['-i',mediaPath(s,s.get('asset',photoReel.outputIds[0]).file),'-vn','-af','volumedetect','-f','null','-']);const maximum=Number(silence.stderr.match(/max_volume: (-?[\d.]+) dB/)[1]);assert.ok(maximum<=-80,`sales audio must be silent: ${maximum}dB`);
   const editorialInput=path.join(dir,'work','editorial.png');await copyFile(mediaPath(s,productPhoto.file),editorialInput);
   const editorial=await saveAsset(s,editorialInput,{name:'editorial.png',source:'ai'});
   const educational={...ready.items.find(i=>i.id==='morning'),selectedAssetIds:[editorial.id],notes:[]};
-  await renderReel(s,ai,ready,educational,work);assert.equal(educational.kind,'carousel');assert.ok(educational.outputIds.length>0);
+  await renderReel(s,ai,ready,educational,work);assert.equal(educational.kind,'reel');assert.equal(educational.voiceUsed,true);assert.ok(educational.outputIds.length>0);
   if(preview)console.log('Preview data:',dir);
 });

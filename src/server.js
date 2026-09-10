@@ -118,16 +118,18 @@ export function createApp(config,{store=new Store(config.dataDir),ai=new AI(conf
         return json(res,201,{plan,job:input.prepare===false?null:store.enqueue('prepare',plan.id)});
       }
       if((m=/^\/api\/plans\/(\d{4}-\d{2}-\d{2})\/prepare$/.exec(p))&&method==='POST') {
+        requireIdle(m[1]);
         const plan=store.get('plan',m[1]);if(!plan)throw new Error('Спочатку створи план дня');
         const input=await body(req),mode=input.mode||'render';if(!['render','text','all'].includes(mode))throw new Error('Невідома дія');
         if(input.itemId&&!plan.items.some(i=>i.id===input.itemId))throw new Error('Матеріал не знайдено');
+        if(input.itemId&&plan.items.find(i=>i.id===input.itemId).status==='posted')throw new Error('Опублікований матеріал не перегенеровується');
         return json(res,202,store.enqueue('prepare',plan.id,{mode,...(input.itemId?{itemId:input.itemId}:{})}));
       }
       if((m=/^\/api\/plans\/(\d{4}-\d{2}-\d{2})\/items\/([a-z-]+)$/.exec(p))&&method==='PUT') {
         requireIdle(m[1]);const plan=store.get('plan',m[1]),item=plan?.items.find(i=>i.id===m[2]);if(!item)throw new Error('Матеріал не знайдено');
         if(item.status==='posted')throw new Error('Опублікований матеріал збережено в історії й не редагується');
         const input=await body(req);let rerender=false;const previousCaption=item.caption;
-        for(const [key,max] of [['title',140],['caption',3000],['pollQuestion',120],['imagePrompt',2500]])if(key in input){if(typeof input[key]!=='string'||input[key].length>max)throw new Error(`Перевір ${key}`);if(key==='title'&&input[key]!==item[key])rerender=true;item[key]=input[key];}
+        for(const [key,max] of [['title',140],['caption',3000],['pollQuestion',120],['imagePrompt',2500]])if(key in input){if(typeof input[key]!=='string'||input[key].length>max)throw new Error(`Перевір ${key}`);if((['title','pollQuestion','imagePrompt'].includes(key)||(key==='caption'&&item.kind==='story'))&&input[key]!==item[key])rerender=true;item[key]=input[key];}
         for(const [key,max] of [['lines',6],['selectedAssetIds',6],['keywords',20],['hashtags',5],['pollOptions',2]])if(key in input){if(!Array.isArray(input[key])||input[key].length>max||input[key].some(v=>typeof v!=='string'||v.length>2200))throw new Error(`Перевір ${key}`);if(['lines','selectedAssetIds'].includes(key)&&JSON.stringify(item[key])!==JSON.stringify(input[key]))rerender=true;item[key]=input[key];}
         if(item.selectedAssetIds.some(id=>{const a=store.get('asset',id);return !a||a.disabled||(item.productId?a.productId!==item.productId||a.source!=='original':Boolean(a.productId));}))throw new Error('Медіафайл не належить цьому матеріалу');
         item.hashtags=[...new Set(item.hashtags.map(t=>'#'+t.replace(/^#+/,'').toLowerCase().replace(/[^\p{L}\p{N}_]/gu,'')))].filter(t=>t.length>1);

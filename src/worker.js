@@ -18,7 +18,9 @@ export function applyCopy(plan,values,store) {
     const allowed=value.assetIds.filter(id=>{const a=store.get('asset',id);return a&&!a.disabled&&a.productId===item.productId&&(item.productId?a.source==='original':true);});
     Object.assign(item,{title:value.title,caption:value.caption,keywords:value.keywords,hashtags:value.hashtags,lines:value.lines,
       pollQuestion:value.pollQuestion,pollOptions:value.pollOptions,imagePrompt:value.imagePrompt,
-      selectedAssetIds:allowed.length?allowed:item.selectedAssetIds,status:'draft',revision:item.revision+1});
+      detailFocus:value.detailFocus||'full',
+      selectedAssetIds:item.purpose==='useful'?[]:allowed.length?[...new Set(allowed)]:item.selectedAssetIds,status:'draft',revision:item.revision+1});
+    if(item.purpose==='useful')item.imageGeneration=(item.imageGeneration||0)+1;
     for(const child of plan.items.filter(i=>i.dependsOn===item.id&&i.status!=='posted'))child.status='draft';
   }
   store.put('plan',plan);
@@ -96,11 +98,14 @@ export class Worker {
         if(item.productId&&!this.store.get('product',item.productId)?.active)throw new Error('Товар знято з продажу. Пропусти цей слот або заміни план.');
         await this.renderer(this.store,this.ai,plan,item);this.store.put('plan',plan);
         // Reposts always point to the newest prepared parent.
-        for(const child of plan.items.filter(i=>i.dependsOn===item.id&&i.status!=='posted')) {child.status='draft';child.outputIds=[];}
+        for(const child of plan.items.filter(i=>(i.dependsOn===item.id||(item.id==='morning'&&i.purpose==='poll'))&&i.status!=='posted'))child.status='draft';
         this.store.put('plan',plan);
       }catch(e){item.status='error';item.error=errorMessage(e);this.store.put('plan',plan);throw e;}
     }
     for(const child of plan.items.filter(i=>i.purpose==='repost'&&i.status==='draft'&&plan.items.find(p=>p.id===i.dependsOn)?.status==='ready')) {
+      await this.renderer(this.store,this.ai,plan,child);this.store.put('plan',plan);
+    }
+    for(const child of plan.items.filter(i=>i.purpose==='poll'&&i.status==='draft'&&i.caption&&plan.items.find(p=>p.id==='morning')?.status==='ready')) {
       await this.renderer(this.store,this.ai,plan,child);this.store.put('plan',plan);
     }
     if(this.store.settings().driveAutoExport&&this.drive.configured()&&plan.items.every(i=>['ready','posted','skipped'].includes(i.status)))this.store.enqueue('export-drive',plan.id);

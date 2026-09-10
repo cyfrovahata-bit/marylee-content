@@ -35,8 +35,10 @@ export function configFrom(env = process.env) {
     googleRefresh: env.GOOGLE_OAUTH_REFRESH_TOKEN || '',
     openaiKey: env.OPENAI_API_KEY || '', textModel: env.MARYLEE_TEXT_MODEL || 'gpt-4.1-mini',
     imageModel: env.MARYLEE_IMAGE_MODEL || 'gpt-image-1',
-    voiceProvider: ['elevenlabs', 'eleven'].includes(env.TTS_ENGINE) ? 'elevenlabs' : 'openai',
-    openaiVoice: env.TTS_OPENAI_VOICE || 'coral', elevenKey: env.ELEVENLABS_API_KEY || '',
+    // Marylee has its own voice profile; legacy YouTube/TikTok TTS settings
+    // must not silently select the old channel voice.
+    voiceProvider: ['elevenlabs', 'eleven'].includes(env.MARYLEE_TTS_ENGINE) ? 'elevenlabs' : 'openai',
+    openaiVoice: env.MARYLEE_OPENAI_VOICE || 'marin', elevenKey: env.ELEVENLABS_API_KEY || '',
     elevenVoice: env.TTS_ELEVEN_VOICE_ID || '', elevenModel: env.TTS_ELEVEN_MODEL || 'eleven_multilingual_v2',
     textReserve: positive('MARYLEE_TEXT_RESERVE_USD', .10),
     imageReserve: positive('MARYLEE_IMAGE_RESERVE_USD', .30),
