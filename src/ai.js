@@ -139,7 +139,7 @@ export class AI {
     this.store.reserve('text',1,this.config.textReserve);
     const started=Date.now();
     console.info('Marylee text request',JSON.stringify({model:this.config.textModel,slots:items.length,images:content.filter(c=>c.type==='image_url').length}));
-    const res=await this.request('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${this.config.openaiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:this.config.textModel,messages:[{role:'system',content:system},{role:'user',content}],max_completion_tokens:9000,response_format:{type:'json_schema',json_schema:{name:'marylee_day',strict:true,schema:copySchema(items,this.store)}}})},300000);
+    const res=await this.request('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${this.config.openaiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:this.config.textModel,messages:[{role:'system',content:system},{role:'user',content}],max_completion_tokens:Math.min(9000,2400*items.length),response_format:{type:'json_schema',json_schema:{name:'marylee_day',strict:true,schema:copySchema(items,this.store)}}})},300000);
     const out=await res.json();
     console.info('Marylee text response',JSON.stringify({model:out.model||this.config.textModel,slots:items.length,finishReason:out.choices?.[0]?.finish_reason||'missing',completionTokens:out.usage?.completion_tokens,elapsedMs:Date.now()-started}));
     if(out.choices?.[0]?.message?.refusal) throw new Error('ШІ відмовився створювати цей матеріал. Перевір опис і фото товару.');

@@ -31,7 +31,7 @@ function render() {
   const items=d.plan?.items||[],ready=items.filter(i=>['ready','posted'].includes(i.status)).length;
   $('#feed-count').textContent=items.length?items.filter(i=>i.kind!=='story').length:3;$('#story-count').textContent=items.length?items.filter(i=>i.kind==='story').length:(d.settings.includeOptionalStory?6:5);
   $('#ready-count').innerHTML=`${ready}<span>/ ${items.length||8}</span>`;$('#readiness-label').textContent=items.length?`${items.filter(i=>i.status==='posted').length} уже опубліковано`:'Почнемо з товарів';
-  $('#prepare-day').disabled=!d.plan||busy();$('#export-day').href='/api/plans/'+state.date+'/export';
+  $('#prepare-day').disabled=!d.plan||busy();$('#regenerate-day').disabled=!d.plan||busy()||items.every(i=>['posted','skipped'].includes(i.status));$('#export-day').href='/api/plans/'+state.date+'/export';
   $('#export-day').classList.toggle('disabled',!items.length||busy()||items.some(i=>!['ready','posted','skipped'].includes(i.status)));
   $('#export-drive').disabled=!d.setup.drive||$('#export-day').classList.contains('disabled');
   $('#open-create').disabled=busy();
@@ -109,6 +109,7 @@ $('#product-dialog').addEventListener('cancel',e=>{if(state.formBusy)e.preventDe
 $('#archive-product').onclick=()=>action(async()=>{const p=product(state.editingProduct);await api('/api/products/'+p.id,{method:'PUT',data:{active:!p.active}});$('#product-dialog').close();await refresh();toast(p.active?'Товар знято з продажу':'Товар повернено в каталог');});
 $('#create-form').onsubmit=e=>{e.preventDefault();action(async()=>{const f=e.target;const ids=[f.elements.productA.value,f.elements.productB.value].filter(Boolean);if(new Set(ids).size!==ids.length)throw new Error('Для A та B вибери різні товари');const d=await api('/api/plans',{method:'POST',data:{date:f.elements.date.value,productIds:ids,prepare:e.submitter?.name!=='draft',replace:f.elements.replace.checked}});state.date=d.plan.id;$('#create-dialog').close();await refresh();toast(d.job?'Підготовку додано до черги':'Розклад створено');});};
 $('#prepare-day').onclick=()=>action(async()=>{await api(`/api/plans/${state.date}/prepare`,{method:'POST',data:{mode:'render'}});await refresh();});
+$('#regenerate-day').onclick=()=>action(async()=>{if(state.formBusy)return;state.formBusy=true;$('#regenerate-day').disabled=true;try{await api(`/api/plans/${state.date}/prepare`,{method:'POST',data:{mode:'all'}});await refresh();toast('Оновлюю неопубліковані матеріали дня пакетами');}finally{state.formBusy=false;}});
 $('#export-drive').onclick=()=>action(async()=>{await api('/api/drive/export',{method:'POST',data:{date:state.date}});await refresh();toast('Пакет додано до черги збереження на Drive');});
 $('#plan-date').onchange=e=>{state.date=e.target.value;refresh();};
 function shift(n){state.date=new Date(Date.parse(state.date+'T12:00:00Z')+n*86400000).toISOString().slice(0,10);refresh();}
