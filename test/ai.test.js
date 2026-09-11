@@ -18,7 +18,8 @@ async function fixture(t,optional=false) {
     const p=store.put('product',cleanProduct({name,ready:true}));
     store.put('asset',{id:'asset-'+p.id,productId:p.id,source:'original',kind:'video',name:'product.mp4',width:1080,height:1920});
   }
-  return {store,plan:createPlan(store,'2026-09-10'),config:configFrom({OPENAI_API_KEY:'test-only'})};
+  const plan=createPlan(store,'2026-09-10');for(const i of plan.items)i.externalImages=false;store.put('plan',plan);
+  return {store,plan,config:configFrom({OPENAI_API_KEY:'test-only'})};
 }
 const captions={
   morning:'Спокійна основа об’єднує палітру. Додай виразний аксесуар і порівняй враження.',

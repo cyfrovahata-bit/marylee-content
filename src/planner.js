@@ -1,15 +1,15 @@
 import { productAssets } from './catalog.js';
-import { validDate, shiftDate } from './kyiv.js';
+import { validDate, shiftDate, kyivToday } from './kyiv.js';
 
 export const SCHEDULE=[
   {id:'morning',time:'09:00',kind:'reel',purpose:'useful',label:'Корисний Reel'},
-  {id:'share-morning',time:'09:30',kind:'story',purpose:'repost',dependsOn:'morning',label:'Поширити ранковий Reel'},
+  {id:'share-morning',time:'09:00',immediate:true,kind:'story',purpose:'repost',dependsOn:'morning',label:'Одразу поширити Reel у сторіз'},
   {id:'poll',time:'12:00',kind:'story',purpose:'poll',label:'Опитування'},
   {id:'carousel',time:'14:00',kind:'carousel',purpose:'product',role:'A',label:'Товар A · карусель'},
   {id:'detail',time:'15:30',kind:'story',purpose:'detail',role:'A',label:'Деталь товару A'},
   {id:'teaser',time:'18:30',kind:'story',purpose:'teaser',role:'B',label:'Знайомство з товаром B'},
   {id:'evening',time:'19:30',kind:'reel',purpose:'sale',role:'B',label:'Товар B · Reel'},
-  {id:'share-evening',time:'20:00',kind:'story',purpose:'repost',role:'B',dependsOn:'evening',label:'Поширити вечірній Reel'},
+  {id:'share-evening',time:'19:30',immediate:true,kind:'story',purpose:'repost',role:'B',dependsOn:'evening',label:'Одразу поширити товарний Reel'},
   {id:'extra',time:'21:30',kind:'story',purpose:'extra',role:'B',optional:true,label:'Додаткова сторіз'},
 ];
 export const TOPICS=[
@@ -48,22 +48,42 @@ export function createPlan(store,date,productIds=[]) {
   if(!products.length) throw new Error('Немає готових товарів без недавнього повтору. Додай новий або вибери товар вручну.');
   const used=store.list('plan').filter(p=>p.id<date).sort((a,b)=>b.id.localeCompare(a.id)).slice(0,13).map(p=>p.topic.id);
   const topic=TOPICS.find(t=>!used.includes(t.id))||TOPICS[0];
-  const A=products.length>1?products[0]:null, B=products.at(-1);
+  const A=products[0], B=products.at(-1);
   const items=SCHEDULE.filter(s=>!s.optional||store.settings().includeOptionalStory).map(s=>{
     const product=s.role==='A'?A:s.role==='B'?B:null;
     const assets=product?productAssets(store,product,{originalOnly:true}):[];
     const isUsefulPhoto=s.role==='A'&&!A;
-    return {...s,productId:product?.id||null,label:isUsefulPhoto?(s.kind==='carousel'?'Корисний фотопост':'Продовження поради'):s.label,
+    return {...s,externalImages:['useful','poll'].includes(s.purpose),productId:product?.id||null,label:isUsefulPhoto?(s.kind==='carousel'?'Корисний фотопост':'Продовження поради'):s.label,
       purpose:isUsefulPhoto?'useful-photo':s.purpose,status:'draft',title:'',caption:'',keywords:[],hashtags:[],lines:[],
       selectedAssetIds:assets.filter(a=>s.kind==='reel'?a.kind==='video':a.kind==='image').slice(0,6).map(a=>a.id),
       outputIds:[],coverId:null,notes:[],revision:0,postedAt:null};
   });
   return store.put('plan',{id:date,topic,productIds:products.map(p=>p.id),createdAt:new Date().toISOString(),items,version:1});
 }
+// One inventory batch consumes each ready product once. Future reservations are
+// excluded even when a user presses the button again or browses another date.
+export function createBatch(store,start=shiftDate(kyivToday(),1)) {
+  if(!validDate(start)||start<shiftDate(kyivToday(),1))throw new Error('Новий пакет починається не раніше завтра за Києвом');
+  const reserved=new Set(store.list('plan').flatMap(p=>p.productIds));
+  const candidates=store.list('product').filter(p=>p.active&&p.ready&&!reserved.has(p.id)&&productAssets(store,p,{originalOnly:true}).length).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+  const plans=[];let date=start;
+  return store.transaction(()=>{
+    while(candidates.length) {
+      while(store.get('plan',date))date=shiftDate(date,1);
+      const eligible=eligibleProducts(store,date).filter(p=>candidates.some(c=>c.id===p.id));
+      if(!eligible.length){date=shiftDate(date,1);continue;}
+      const chosen=eligible.slice(0,2).map(p=>p.id);
+      const plan=createPlan(store,date,chosen);plans.push(plan);
+      for(const id of chosen)candidates.splice(candidates.findIndex(p=>p.id===id),1);
+      store.enqueue('prepare',date,{mode:'render'});date=shiftDate(date,1);
+    }
+    return {dates:plans.map(p=>p.id),products:plans.reduce((n,p)=>n+p.productIds.length,0)};
+  });
+}
 export function itemGoal(item) {
   const goals={
     useful:'Зацікавити порадою про стиль: два образи й одна наочна відмінність. Без продажу товару.',
-    poll:'Дізнатися, який образ ближчий аудиторії. Використовує ту саму ілюстрацію, що й ранковий Reel.',
+    poll:'Дізнатися, який варіант ближчий аудиторії. Окремий фон за темою дня; справжню наліпку опитування додаєш під час публікації.',
     product:'Дати змогу роздивитися товар A й прочитати характеристики: ціну, артикул, розміри, кольори та матеріал у повному підписі.',
     detail:'Показати ближче одну справжню деталь товару A: застібку, крій або оздоблення.',
     teaser:'Познайомити з товаром B перед вечірнім оглядом, показавши одну його особливість.',

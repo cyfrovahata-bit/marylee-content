@@ -6,6 +6,7 @@ import { run, probe, mediaPath, registerOutput } from './files.js';
 import { productAssets } from './catalog.js';
 import { salesReel, usesVoice } from './content.js';
 import { editorialAssets, pendingMedia } from './editorial.js';
+import { factBlock } from './ai.js';
 
 const W=1080,H=1920,FPS=25,FONT='DejaVu Sans';
 const codec=['-c:v','libx264','-preset','veryfast','-crf','22','-pix_fmt','yuv420p','-r',String(FPS),'-g','50','-keyint_min','50','-sc_threshold','0','-threads','2'];
@@ -71,7 +72,7 @@ export async function renderReel(store,ai,plan,item,dir) {
     if(asset.kind==='image')args.push('-loop','1');else args.push('-stream_loop','-1');
     args.push('-i',mediaPath(store,asset.file));
     // Comparison, left outfit, right outfit, comparison. Actual product frames stay whole.
-    const crop=asset.layout==='diptych'&&(n===1||n===2)?`crop=iw/2:ih:${n===1?0:'iw/2'}:0,`:'';
+    const crop=asset.layout==='diptych'&&!item.externalImages&&(n===1||n===2)?`crop=iw/2:ih:${n===1?0:'iw/2'}:0,`:'';
     let visual=`${crop}scale=${W}:1350:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:310:color=0xf4f0e8,setsar=1`;
     if(asset.kind==='image')visual+=`,zoompan=z='1.01+0.025*min(on/${Math.max(1,Math.round(duration*FPS)-1)},1)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=${W}x${H}:fps=${FPS}`;
     else visual+=`,fps=${FPS}`;
@@ -103,10 +104,22 @@ export async function renderCarousel(store,plan,item,dir,provided=null) {
   if(!photos.length&&available.some(a=>a.kind==='video'))photos=available.filter(a=>a.kind==='video').slice(0,1);
   if(!photos.length)throw new Error('Додай фото для каруселі або спочатку підготуй ранкову ілюстрацію');
   const outputs=[];
+  if(product)outputs.push((await card(store,{asset:photos[0],height:1350,title:item.title,detail:product.price!==null?`${product.price} грн${product.sku?' · Арт. '+product.sku:''}`:'',name:'01-cover.jpg'},dir)).id);
   for(const [n,asset] of photos.slice(0,6).entries()) {
     const out=path.join(dir,`photo-${n}.jpg`);
     await run('ffmpeg',['-y','-filter_threads','1','-threads','1','-i',mediaPath(store,asset.file),'-frames:v','1','-vf','scale=1080:1350:force_original_aspect_ratio=decrease,pad=1080:1350:(ow-iw)/2:(oh-ih)/2:color=0xf4f0e8','-q:v','2','-threads','1',out]);
     outputs.push((await registerOutput(store,out,{kind:'image',name:`${item.time.replace(':','-')}-${n+1}.jpg`})).id);
+  }
+  if(product){
+    const lines=factBlock(product).split('\n').filter(Boolean).flatMap(field=>[...wrap(field,38).split('\\N').flatMap(line=>line.match(/.{1,38}/gu)||[]),'']);
+    for(let page=0;page*18<lines.length;page++){
+      const out=path.join(dir,`specifications-${page}.jpg`),sub=path.join(dir,`specifications-${page}.ass`);
+      let ass=assHeader(1350)+event(0,1,'Brand','MARYLEE SHOP');
+      for(const [n,line] of lines.slice(page*18,(page+1)*18).entries())if(line)ass+=event(0,1,'Title',`{\\an7\\pos(90,${225+n*52})\\fs36}${line}`);
+      await writeFile(sub,ass);
+      await run('ffmpeg',['-y','-f','lavfi','-i','color=c=0xf4f0e8:s=1080x1350:d=1','-vf',`ass=${sub}`,'-frames:v','1','-threads','1',out]);
+      outputs.push((await registerOutput(store,out,{kind:'image',name:`99-characteristics-${page+1}.jpg`})).id);
+    }
   }
   item.notes=[`Відібрано ${photos.length} кадрів із ${available.length} доступних.`];
   item.mediaAssetIds=photos.map(a=>a.id);item.outputIds=outputs;item.coverId=outputs[0];return item;
@@ -126,7 +139,7 @@ export async function renderItem(store,ai,plan,item) {
       const product=item.productId?store.get('product',item.productId):null;
       const assets=product?productAssets(store,product,{originalOnly:true}):[];
       const morning=plan.items.find(i=>i.id==='morning');
-      const asset=product?(item.selectedAssetIds.map(id=>assets.find(a=>a.id===id)).find(Boolean)||assets[0]):editorialAssets(store,morning)[0];
+      const asset=product?(item.selectedAssetIds.map(id=>assets.find(a=>a.id===id)).find(Boolean)||assets[0]):editorialAssets(store,item.externalImages?item:morning)[0];
       if(item.purpose==='poll'&&!asset)throw new Error('Спочатку підготуй приклади образів у ранковому Reel');
       const detail=product&&product.price!==null?`${product.price} грн${product.sku?' · Арт. '+product.sku:''}`:item.purpose==='poll'?'':item.caption;
       const output=await card(store,{asset,title:item.purpose==='poll'?item.pollQuestion:item.title,detail,poll:item.purpose==='poll',focus:item.purpose==='detail'?item.detailFocus||'upper':'full',name:`${item.time.replace(':','-')}-story.jpg`},dir);

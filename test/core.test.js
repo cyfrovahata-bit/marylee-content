@@ -44,12 +44,12 @@ test('Kyiv calendar keeps local midnight and DST transitions',()=>{
 });
 test('two distinct products, chronological slots, cooldown and single-product fallback',async t=>{
   const s=await fixture(t),A=addProduct(s,'Сукня'),B=addProduct(s,'Жакет');
-  const p=createPlan(s,'2026-09-10');assert.equal(p.items.length,8);assert.deepEqual(p.items.map(i=>i.time),['09:00','09:30','12:00','14:00','15:30','18:30','19:30','20:00']);
+  const p=createPlan(s,'2026-09-10');assert.equal(p.items.length,8);assert.deepEqual(p.items.map(i=>i.time),['09:00','09:00','12:00','14:00','15:30','18:30','19:30','19:30']);
   assert.notEqual(p.items.find(i=>i.id==='carousel').productId,p.items.find(i=>i.id==='evening').productId);
   assert.equal(createPlan(s,'2026-09-10').createdAt,p.createdAt);assert.equal(eligibleProducts(s,'2026-09-11').length,0);
   assert.equal(eligibleProducts(s,'2026-09-17').length,2);
   assert.throws(()=>createPlan(s,'2026-09-11',[A.id,A.id]),/різних/);
-  const single=createPlan(s,'2026-09-11',[B.id]);assert.equal(single.items.find(i=>i.id==='carousel').productId,null);assert.equal(single.items.find(i=>i.id==='evening').productId,B.id);
+  const single=createPlan(s,'2026-09-11',[B.id]);assert.equal(single.items.find(i=>i.id==='carousel').productId,B.id);assert.equal(single.items.find(i=>i.id==='evening').productId,B.id);
 });
 test('job deduplication, ledger limits and persisted interruption recovery',async t=>{
   const s=await fixture(t);const a=s.enqueue('prepare','2026-09-10');assert.equal(s.enqueue('prepare','2026-09-10').id,a.id);
@@ -107,7 +107,7 @@ test('evening scheduling imports Drive before selecting new products and queues 
   const s=await fixture(t);s.setSettings({autoPrepare:true,prepareTime:'22:30',driveAutoImport:true});
   const worker=new Worker(s,{config:{openaiKey:'test-only'}},{configured:()=>true});
   worker.schedule(new Date('2026-09-09T19:31:00Z'));worker.schedule(new Date('2026-09-09T19:32:00Z'));
-  assert.deepEqual(s.activeJobs().map(j=>j.type),['import','prepare']);assert.equal(s.get('plan','2026-09-10'),null);
+  assert.deepEqual(s.activeJobs().map(j=>j.type),['import','plan-batch']);assert.equal(s.get('plan','2026-09-10'),null);
   assert.equal(s.activeJobs()[1].target,'2026-09-10');
 });
 

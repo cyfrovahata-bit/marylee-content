@@ -15,13 +15,13 @@ export function editorialAssets(store,item) {
   return allowed(cached)&&item.illustrationSignature===illustrationSignature(item)?[cached]:[];
 }
 export function imageSource(plan,item) {
-  if(item.purpose==='useful')return item;
+  if(item.purpose==='useful'||(item.purpose==='poll'&&item.externalImages))return item;
   if(['poll','useful-photo'].includes(item.purpose)||item.dependsOn==='morning')return plan.items.find(i=>i.id==='morning');
   return null;
 }
 export function pendingMedia(store,plan,item) {
   const source=imageSource(plan,item);
-  if(source&&!editorialAssets(store,source).length)return {status:'awaiting-image',sourceId:source.id,message:item.id===source.id?'Промпт готовий. Намалюй зображення й завантаж його сюди.':'Використає зображення з ранкового Reel. Завантаж його в матеріал о 09:00.'};
+  if(source&&!editorialAssets(store,source).length)return {status:'awaiting-image',sourceId:source.id,message:source.externalImages?'Завдання для GPT у черзі Drive. Після готового ZIP програма сама підготує матеріал.':item.id===source.id?'Промпт готовий. Намалюй зображення й завантаж його сюди.':'Використає зображення ранкового Reel.'};
   if(item.purpose==='repost') {
     const parent=plan.items.find(i=>i.id===item.dependsOn);
     if(!parent||!['ready','posted'].includes(parent.status)||!parent.outputIds?.length)return {status:'waiting-parent',sourceId:parent?.id,message:'Спочатку потрібно завершити Reel, який поширюємо.'};
@@ -29,11 +29,12 @@ export function pendingMedia(store,plan,item) {
   return null;
 }
 export function resetIllustration(item) {
+  item.externalJobId=null;item.approvedStory=null;item.approvedAssetIds=[];item.factCheck=null;
   item.selectedAssetIds=[];item.illustrationId=null;item.illustrationSignature=null;item.mediaAssetIds=[];
   item.outputIds=[];item.coverId=null;
 }
 export function invalidateDependents(plan,item) {
-  for(const child of plan.items.filter(i=>i.id!==item.id&&!['posted','skipped'].includes(i.status)&&(i.dependsOn===item.id||(item.purpose==='useful'&&['poll','useful-photo'].includes(i.purpose))))) {
+  for(const child of plan.items.filter(i=>i.id!==item.id&&!['posted','skipped'].includes(i.status)&&(i.dependsOn===item.id||(item.purpose==='useful'&&!i.externalImages&&['poll','useful-photo'].includes(i.purpose))))) {
     child.status='draft';child.outputIds=[];child.coverId=null;
   }
 }

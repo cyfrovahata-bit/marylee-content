@@ -1,10 +1,11 @@
 import { rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { kyivToday, kyivMinutes, shiftDate } from './kyiv.js';
-import { createPlan, eligibleProducts } from './planner.js';
+import { createPlan, createBatch, eligibleProducts } from './planner.js';
 import { renderItem } from './montage.js';
 import { IMAGE_API_DISABLED, resetIllustration, invalidateDependents } from './editorial.js';
 import { exportDay } from './export.js';
+import { ContentQueue } from './queue.js';
 
 const errorMessage=error=>['TimeoutError','AbortError'].includes(error.name)
   ?'Сервіс генерації не встиг відповісти. Товари та готові матеріали збережені. Можна продовжити вручну.'
@@ -19,13 +20,14 @@ export function applyCopy(plan,values,store) {
       pollQuestion:value.pollQuestion,pollOptions:value.pollOptions,imagePrompt:value.imagePrompt,
       detailFocus:value.detailFocus||'full',
       selectedAssetIds:item.purpose==='useful'?[]:allowed.length?[...new Set(allowed)]:item.selectedAssetIds,status:'draft',revision:item.revision+1});
-    if(item.purpose==='useful'){item.imageGeneration=(item.imageGeneration||0)+1;resetIllustration(item);}
+    if(item.purpose==='useful'&&!item.externalImages){item.imageGeneration=(item.imageGeneration||0)+1;resetIllustration(item);}
+    if(item.approvedStory){Object.assign(item,item.approvedStory);item.selectedAssetIds=item.approvedAssetIds||item.selectedAssetIds;}
     invalidateDependents(plan,item);
   }
   store.put('plan',plan);
 }
 export class Worker {
-  constructor(store,ai,drive,{renderer=renderItem}={}) {this.store=store;this.ai=ai;this.drive=drive;this.renderer=renderer;this.busy=false;this.lastImport=0;}
+  constructor(store,ai,drive,{renderer=renderItem}={}) {this.store=store;this.ai=ai;this.drive=drive;this.queue=new ContentQueue(store,drive);this.renderer=renderer;this.busy=false;this.lastImport=0;this.lastQueue=0;}
   start() {this.store.recover();this.timer=setInterval(()=>this.tick().catch(e=>console.error('Worker:',e.message)),15000);this.timer.unref();this.tick().catch(e=>console.error('Worker:',e.message));}
   stop(){clearInterval(this.timer);this.stopping=true;}
   schedule(now=new Date()) {
@@ -35,15 +37,15 @@ export class Worker {
       try {
         const importFirst=s.driveAutoImport&&this.drive.configured();
         if(importFirst)this.store.enqueue('import','drive');
-        const plan=this.store.get('plan',tomorrow);
-        if(!plan&&!importFirst&&!eligibleProducts(this.store,tomorrow).length)throw new Error('Додай готовий товар для автоматичної підготовки завтра.');
-        if(!plan||plan.items.some(i=>!['ready','posted','skipped'].includes(i.status)))this.store.enqueue('prepare',tomorrow);
+        if(importFirst)this.store.enqueue('plan-batch',tomorrow);else createBatch(this.store,tomorrow);
         this.store.put('schedule',{id:today,queuedAt:now.toISOString()});
       }catch(e){this.store.put('notice',{id:'schedule',message:e.message,at:now.toISOString()});}
     }
     if(s.driveAutoImport&&this.drive.configured()&&now.getTime()-this.lastImport>900000) {
       this.lastImport=now.getTime();this.store.enqueue('import','drive');
     }
+    const pendingImages=this.store.list('image-job').some(j=>!['IMPORTED','CANCELLED'].includes(j.status));
+    if(s.driveQueueMonitor&&pendingImages&&this.queue.configured()&&now.getTime()-this.lastQueue>120000){this.lastQueue=now.getTime();this.store.enqueue('queue-sync','drive');}
   }
   async tick() {
     if(this.busy||this.stopping)return;
@@ -53,13 +55,16 @@ export class Worker {
     try {
       let result;
       if(job.type==='prepare') result=await this.prepare(job,progress);
+      else if(job.type==='plan-batch')result=createBatch(this.store,job.target);
+      else if(job.type==='queue-sync')result=await this.queue.sync();
       else if(job.type==='import')result=await this.drive.importProducts(progress);
-      else if(job.type==='drive-setup')result=await this.drive.setup();
+      else if(job.type==='drive-setup')result=this.queue.configured()?await this.queue.setup():await this.drive.queueFolders();
       else if(job.type==='image')throw new Error(IMAGE_API_DISABLED);
       else if(job.type==='export-drive')result=await this.toDrive(job.target,progress);
       else throw new Error('Невідоме завдання');
-      this.store.updateJob(job,{status:'done',progress:100,message:result?.waitingForImages?'Товарні матеріали готові. Завантаж зображення для ранкової поради.':'Готово',result});
-    }catch(e){this.store.updateJob(job,{status:'error',message:errorMessage(e)});}
+      this.store.updateJob(job,{status:'done',progress:100,message:result?.waitingForImages?'Товарні матеріали готові. Ілюстрації очікуються з черги GPT.':'Готово',result});
+      if(job.type==='queue-sync')this.store.db.prepare("DELETE FROM jobs WHERE type='queue-sync' AND status='done' AND id<>?").run(job.id);
+    }catch(e){if(job.type==='queue-sync')this.lastQueue=Date.now()+13*60000;this.store.updateJob(job,{status:'error',message:errorMessage(e)});}
     finally{this.busy=false;}
   }
   async prepare(job,progress) {
@@ -67,7 +72,13 @@ export class Worker {
     const selected=job.payload.itemId?plan.items.filter(i=>i.id===job.payload.itemId):plan.items.filter(i=>!['posted','skipped'].includes(i.status));
     if(!selected.length||selected.some(i=>i.status==='posted'))throw new Error('Опублікований матеріал не перегенеровується');
     const forceCopy=job.payload.mode==='text'||job.payload.mode==='all';
-    const needCopy=selected.filter(i=>!i.caption||(forceCopy&&job.payload.copiedRevisions?.[i.id]!==i.revision));
+    if(job.payload.mode==='all'&&!job.payload.imagesInvalidated){
+      for(const item of selected.filter(i=>i.externalImages)){resetIllustration(item);item.approvedAssetIds=[];item.imageGeneration=(item.imageGeneration||0)+1;item.caption='';item.status='draft';item.revision++;invalidateDependents(plan,item);}
+      this.store.transaction(()=>{this.store.put('plan',plan);this.store.updateJob(job,{payload:{...job.payload,imagesInvalidated:true}});});
+    }
+    const externalDay=plan.items.some(i=>i.externalImages);
+    if(externalDay)for(const i of selected.filter(i=>i.purpose==='repost')){i.caption='Відкрий Reel і пошир у свої сторіз.';i.title=i.label;}
+    const needCopy=selected.filter(i=>!(externalDay&&i.purpose==='repost')&&!(i.externalImages&&!i.approvedStory)&&(!i.caption||(forceCopy&&job.payload.copiedRevisions?.[i.id]!==i.revision)));
     const batches=[];
     for(const item of needCopy) {
       const batch=batches.at(-1);
@@ -86,6 +97,8 @@ export class Worker {
       });
       copied+=batch.length;progress(`Тексти збережено: ${copied}/${needCopy.length}`,8+Math.round((n+1)/batches.length*30));
     }
+    if(selected.some(i=>i.externalImages))try{await this.queue.ensure(plan);this.store.remove('notice','queue-error');}catch(e){this.store.put('notice',{id:'queue-error',message:e.message,at:new Date().toISOString()});}
+    this.store.put('plan',plan);
     if(job.payload.mode==='text')return {date:plan.id,textsReady:true};
     const toRender=selected.filter(i=>!['ready','posted','skipped'].includes(i.status)||job.payload.itemId);
     for(const [n,item] of toRender.entries()) {

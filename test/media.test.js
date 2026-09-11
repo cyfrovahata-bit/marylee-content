@@ -26,6 +26,8 @@ test('full day renders real MP4/JPEG/SRT/ZIP, preserves portrait dimensions and 
   await run('ffmpeg',['-y','-f','lavfi','-i','sine=frequency=220:duration=0.6','-c:a','libmp3lame',voice]);
   await saveAsset(s,input,{name:'photo.png',productId:A.id});await saveAsset(s,clip,{name:'video.mp4',productId:B.id});
   const plan=createPlan(s,'2026-09-10',[A.id,B.id]);
+  // Preserve the existing manual-upload route for older saved plans.
+  for(const i of plan.items)i.externalImages=false;
   const titles=['Один акцент — інший настрій','Збережи кольорову підказку','Яка палітра ближча?','Знайомство з сукнею','Розглянь деталь','Вечірня примірка ідей','Жакет у русі','Поділись вечірнім образом'];
   for(const [n,i] of plan.items.entries()) {i.title=titles[n];i.caption='Тестовий матеріал для перевірки застосунку. Не є товарною публікацією.';i.lines=['Спокійна основа.','Додай кольоровий акцент.'];i.hashtags=i.kind==='story'?[]:['#стиль','#marylee','#образ','#одяг','#україна'];i.pollQuestion='Яка палітра ближча?';i.pollOptions=['Спокійна','Контрастна'];}
   plan.items[0].imagePrompt='Two full-length outfits side by side, left with flats, right with boots.';s.put('plan',plan);

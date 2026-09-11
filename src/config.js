@@ -4,7 +4,7 @@ export const YOUTUBE_STORIS_FOLDER = '1sIcjn1IYI4uuw6TsBwyiKUKN6eNQUpXJ';
 export const DEFAULT_SETTINGS = Object.freeze({
   autoPrepare: true, prepareTime: '22:30', voiceEnabled: true,
   includeOptionalStory: false, cooldownDays: 7, dailyBudget: 5,
-  driveAutoImport: false, driveAutoExport: false,
+  driveAutoImport: false, driveAutoExport: false, queueSheetId:'', driveQueueMonitor:true,
 });
 
 export function configFrom(env = process.env) {
@@ -49,9 +49,10 @@ export function configFrom(env = process.env) {
 
 export function validateSettings(value) {
   const next = {};
-  for (const key of ['autoPrepare','voiceEnabled','includeOptionalStory','driveAutoImport','driveAutoExport']) {
+  for (const key of ['autoPrepare','voiceEnabled','includeOptionalStory','driveAutoImport','driveAutoExport','driveQueueMonitor']) {
     if (key in value) { if (typeof value[key] !== 'boolean') throw new Error('Некоректний перемикач'); next[key] = value[key]; }
   }
+  if('queueSheetId' in value){if(typeof value.queueSheetId!=='string'||!/^([a-zA-Z0-9_-]{5,150})?$/.test(value.queueSheetId))throw new Error('Встав ідентифікатор таблиці Google Sheets');next.queueSheetId=value.queueSheetId;}
   if ('prepareTime' in value) {
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value.prepareTime)) throw new Error('Час має бути у форматі ГГ:ХХ');
     next.prepareTime = value.prepareTime;

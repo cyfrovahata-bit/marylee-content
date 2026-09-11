@@ -28,7 +28,7 @@ export class Drive {
   }
   async request(url,options={}) {
     const u=new URL(url);
-    if(u.origin!=='https://www.googleapis.com')throw new Error('Непідтримувана адреса Drive');
+    if(!['https://www.googleapis.com','https://sheets.googleapis.com'].includes(u.origin))throw new Error('Непідтримувана адреса Google');
     const res=await this.fetch(url,{...options,headers:{Authorization:`Bearer ${await this.accessToken()}`,...options.headers},signal:AbortSignal.timeout(240000)});
     if(!res.ok)throw new Error(`Google Drive: ${res.status}. Перевір доступ і вільне місце.`);
     return res;
@@ -66,7 +66,31 @@ export class Drive {
   async setup() {
     const root=await this.folder(this.c.driveParent,'Marylee Content','root');
     const input=await this.folder(root,'Товари','input'),output=await this.folder(root,'Готове','output');
-    const result={id:'drive',root,input,output};this.store.put('integration',result);return result;
+    const result={...this.store.get('integration','drive'),id:'drive',root,input,output};this.store.put('integration',result);return result;
+  }
+  async queueFolders() {
+    const roots=await this.setup();
+    for(const [key,name] of [['prompts','Промпти'],['briefs','Завдання GPT'],['results','Результати GPT']])roots[key]=await this.folder(roots.root,name,key);
+    this.store.put('integration',roots);return roots;
+  }
+  async sheet(range,values) {
+    const id=safeId(this.store.settings().queueSheetId);
+    const meta=await this.scoped(id);
+    if(meta.mimeType!=='application/vnd.google-apps.spreadsheet')throw new Error('Для черги потрібна таблиця Google Sheets');
+    const url=`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/${encodeURIComponent('Queue!'+range)}`;
+    const res=await this.request(url+(values?'?valueInputOption=RAW':'?valueRenderOption=UNFORMATTED_VALUE'),values?{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({values})}:{});
+    return res.json();
+  }
+  async trashChildren(parent) {
+    const roots=this.store.get('integration','drive');
+    if(!roots||![roots.input,roots.output,roots.briefs,roots.results].includes(parent))throw new Error('Очищення дозволене лише для папок матеріалів Marylee');
+    const folder=await this.scoped(parent);
+    if(folder.appProperties?.marylee!=='1'||!folder.parents?.includes(roots.root))throw new Error('Папку Marylee не підтверджено');
+    let count=0;
+    for(const file of await this.children(parent)){
+      await this.request(`${BASE}/files/${safeId(file.id)}?supportsAllDrives=true`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({trashed:true})});count++;
+    }
+    return count;
   }
   async upload(parent,name,filename,mime,key) {
     await this.scoped(parent);

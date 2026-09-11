@@ -11,7 +11,9 @@ import { AI, captionFor, factBlock } from './ai.js';
 import { Drive } from './drive.js';
 import { Worker } from './worker.js';
 import { cleanProduct, productAssets } from './catalog.js';
-import { createPlan, eligibleProducts, itemInstruction, itemGoal } from './planner.js';
+import { createPlan, createBatch, eligibleProducts, itemInstruction, itemGoal } from './planner.js';
+import { hourlyPrompt } from './queue.js';
+import { resetContent, restoreContent } from './reset.js';
 import { IMAGE_API_DISABLED, drawingPrompt, imageSource, illustrationSignature, resetIllustration, invalidateDependents } from './editorial.js';
 import { kyivToday, shiftDate, validDate } from './kyiv.js';
 import { saveAsset, boundedDownload, mediaPath } from './files.js';
@@ -37,8 +39,8 @@ async function serveFile(req,res,filename,mime,{download=false,name='file',clean
 }
 
 export function createApp(config,{store=new Store(config.dataDir),ai=new AI(config,store),drive=new Drive(config,store),startWorker=true,renderer}={}) {
-  const worker=new Worker(store,ai,drive,renderer?{renderer}:{});let uploads=0;
-  const isBusy=date=>store.activeJobs().some(j=>j.type==='prepare'&&j.target===date);
+  const worker=new Worker(store,ai,drive,renderer?{renderer}:{});let uploads=0,maintenance=false;
+  const isBusy=date=>store.activeJobs().some(j=>(j.type==='prepare'&&j.target===date)||(j.type==='queue-sync'&&j.status==='running'));
   const requireIdle=date=>{if(isBusy(date))throw new Error('Цей день зараз готується. Дочекайся завершення перед редагуванням.');};
   function checkProductBusy(id) {
     if(store.activeJobs().some(j=>j.type==='import'&&j.status==='running'))throw new Error('Зараз триває імпорт товарів. Дочекайся завершення.');
@@ -51,6 +53,7 @@ export function createApp(config,{store=new Store(config.dataDir),ai=new AI(conf
       const url=new URL(req.url,'http://localhost'),p=url.pathname,method=req.method;
       if(p==='/healthz')return json(res,200,{ok:true,app:'marylee-content',version:'1.0.0'});
       if(['POST','PUT','PATCH','DELETE'].includes(method)) {
+        if(maintenance)return json(res,409,{error:'Завершується очищення матеріалів. Зачекай.'});
         if(req.headers['x-marylee']!=='1')return json(res,403,{error:'Онови сторінку та повтори дію'});
         if(req.headers.origin) {
           const expected=config.publicUrl?new URL(config.publicUrl).origin:`${config.production?'https':'http'}://${req.headers.host}`;
@@ -66,9 +69,31 @@ export function createApp(config,{store=new Store(config.dataDir),ai=new AI(conf
           dates:store.list('plan').map(p=>p.id).sort(),products:store.list('product').sort((a,b)=>b.createdAt.localeCompare(a.createdAt)),
           assets:store.list('asset').filter(a=>!a.disabled),eligible:eligibleProducts(store,date).map(p=>p.id),
           jobs:store.jobs(),settings:store.settings(),usage:store.usage(),drive:store.get('integration','drive'),driveExport:store.get('drive-export',date),
+          imageJobs:store.list('image-job').filter(j=>j.date===date),queueNotice:store.get('notice','queue-error')||store.get('notice','queue-sync'),
+          resets:store.list('reset').filter(r=>r.status==='complete').sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,1),maintenance,
           setup:{text:Boolean(config.openaiKey),imageGeneration:false,voice:config.voiceProvider==='elevenlabs'?Boolean(config.elevenKey&&config.elevenVoice):Boolean(config.openaiKey),drive:drive.configured(),voiceProvider:config.voiceProvider},notices:store.list('notice')});
       }
       if(p==='/api/settings'&&method==='PUT')return json(res,200,store.setSettings(validateSettings(await body(req))));
+      if(p==='/api/plans/batch'&&method==='POST'){
+        if(uploads||store.activeJobs().some(j=>j.type==='import'))throw new Error('Дочекайся завершення завантаження товарів');
+        return json(res,201,createBatch(store));
+      }
+      if(p==='/api/content/reset'&&method==='POST'){
+        const input=await body(req);if(input.confirm!=='MARYLEE')throw new Error('Підтвердь очищення матеріалів Marylee');
+        if(uploads||worker.busy||store.activeJobs().some(j=>j.type!=='queue-sync'))throw new Error('Дочекайся завершення поточних завдань');
+        maintenance=true;worker.busy=true;
+        try{return json(res,200,await resetContent(store,drive));}finally{maintenance=false;worker.busy=false;}
+      }
+      if(p==='/api/content/restore'&&method==='POST'){
+        const input=await body(req);
+        if(uploads||worker.busy||store.activeJobs().some(j=>j.type!=='queue-sync'))throw new Error('Дочекайся завершення поточних завдань');
+        maintenance=true;worker.busy=true;try{return json(res,200,await restoreContent(store,input.id));}finally{maintenance=false;worker.busy=false;}
+      }
+      if(p==='/api/queue/prompt'&&method==='GET'){
+        const roots=store.get('integration','drive');if(!roots?.results||!store.settings().queueSheetId)throw new Error('Спочатку підготуй чергу Google Drive');
+        return json(res,200,{prompt:hourlyPrompt(store.settings().queueSheetId,roots)});
+      }
+      if(p==='/api/queue/sync'&&method==='POST')return json(res,202,store.enqueue('queue-sync','drive'));
       if(p==='/api/products'&&method==='POST')return json(res,201,store.put('product',cleanProduct(await body(req))));
       let m;
       if((m=/^\/api\/products\/([a-f0-9-]+)$/.exec(p))&&method==='PUT') {
