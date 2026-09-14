@@ -36,18 +36,22 @@ const detailCrop=focus=>focus==='upper'?'crop=trunc(iw*0.76/2)*2:trunc(ih*0.58/2
 
 export async function card(store,{asset=null,title='',detail='',height=H,name='story.jpg',focus='full',poll=false},dir) {
   const id=randomUUID(),out=path.join(dir,id+'.jpg'),sub=path.join(dir,id+'.ass');
-  const titleY=height===H?(poll?300:1530):1060,detailY=height===H?1695:1200;
+  // Polls use the image as the hero: question in the safe top zone, image almost full height, labels above the Instagram poll sticker area.
+  const titleY=height===H?(poll?150:1530):(poll?95:1050);
+  const detailY=height===H?(poll?1740:1695):1200;
   let ass=assHeader(height)+event(0,1,'Brand',asset?.source==='ai'?'MARYLEE / ІЛЮСТРАЦІЯ ШІ':'MARYLEE SHOP');
-  if(title)ass+=event(0,1,'Title',`{\\an8\\pos(540,${titleY})\\fs${title.length>46?50:60}}${wrap(title,28)}`);
+  if(title)ass+=event(0,1,'Title',`{\\an8\\pos(540,${titleY})\\fs${poll?(title.length>42?48:58):(title.length>46?50:60)}}${wrap(title,poll?34:28)}`);
   if(detail)ass+=event(0,1,'Title',`{\\an8\\pos(540,${detailY})\\fs38}${wrap(detail,42)}`);
   if(poll) {
-    ass+=event(0,1,'Brand','{\\an8\\pos(270,1550)\\fs32}ЛІВИЙ ОБРАЗ');
-    ass+=event(0,1,'Brand','{\\an8\\pos(810,1550)\\fs32}ПРАВИЙ ОБРАЗ');
+    ass+=event(0,1,'Brand','{\\an8\\pos(270,1600)\\fs30}ЛІВИЙ ОБРАЗ');
+    ass+=event(0,1,'Brand','{\\an8\\pos(810,1600)\\fs30}ПРАВИЙ ОБРАЗ');
   }
   await writeFile(sub,ass);
   const args=['-y','-filter_threads','1','-threads','1'];
   if(asset)args.push('-i',mediaPath(store,asset.file));else args.push('-f','lavfi','-i',`color=c=0xf4f0e8:s=${W}x${height}:d=1`);
-  const filter=asset?`${detailCrop(focus)}scale=${W}:${poll?1060:height-590}:force_original_aspect_ratio=decrease,pad=${W}:${height}:(ow-iw)/2:${poll?'440':'170'}:color=0xf4f0e8,setsar=1`:'null';
+  const imageHeight=height===H?(poll?1450:height-590):height-430;
+  const imageTop=height===H?(poll?190:170):80;
+  const filter=asset?`${detailCrop(focus)}scale=${W}:${imageHeight}:force_original_aspect_ratio=decrease,pad=${W}:${height}:(ow-iw)/2:${imageTop}:color=0xf4f0e8,setsar=1`:'null';
   args.push('-vf',`${filter},ass=${sub}`,'-frames:v','1','-q:v','2','-threads','1',out);
   await run('ffmpeg',args);return registerOutput(store,out,{kind:'image',name});
 }
@@ -71,7 +75,6 @@ export async function renderReel(store,ai,plan,item,dir) {
     const args=['-y','-filter_threads','1','-filter_complex_threads','1','-threads','1'];
     if(asset.kind==='image')args.push('-loop','1');else args.push('-stream_loop','-1');
     args.push('-i',mediaPath(store,asset.file));
-    // Comparison, left outfit, right outfit, comparison. Actual product frames stay whole.
     const crop=asset.layout==='diptych'&&!item.externalImages&&(n===1||n===2)?`crop=iw/2:ih:${n===1?0:'iw/2'}:0,`:'';
     let visual=`${crop}scale=${W}:1350:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:310:color=0xf4f0e8,setsar=1`;
     if(asset.kind==='image')visual+=`,zoompan=z='1.01+0.025*min(on/${Math.max(1,Math.round(duration*FPS)-1)},1)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=${W}x${H}:fps=${FPS}`;
@@ -115,13 +118,20 @@ export async function renderCarousel(store,plan,item,dir,provided=null) {
     for(let page=0;page*18<lines.length;page++){
       const out=path.join(dir,`specifications-${page}.jpg`),sub=path.join(dir,`specifications-${page}.ass`);
       let ass=assHeader(1350)+event(0,1,'Brand','MARYLEE SHOP');
-      for(const [n,line] of lines.slice(page*18,(page+1)*18).entries())if(line)ass+=event(0,1,'Title',`{\\an7\\pos(90,${225+n*52})\\fs36}${line}`);
+      // Characteristics slide: compact information block with a product image rather than a blank text sheet.
+      const source=photos[Math.min(page+1,photos.length-1)];
+      if(source)ass+=event(0,1,'Brand','{\\an7\\pos(820,210)\\fs24}MARYLEE SHOP');
+      for(const [n,line] of lines.slice(page*14,(page+1)*14).entries())if(line)ass+=event(0,1,'Title',`{\\an7\\pos(70,${260+n*68})\\fs34}${line}`);
       await writeFile(sub,ass);
-      await run('ffmpeg',['-y','-f','lavfi','-i','color=c=0xf4f0e8:s=1080x1350:d=1','-vf',`ass=${sub}`,'-frames:v','1','-threads','1',out]);
+      const charArgs=['-y','-filter_threads','1','-threads','1'];
+      if(source)charArgs.push('-i',mediaPath(store,source.file));else charArgs.push('-f','lavfi','-i','color=c=0xf4f0e8:s=1080x1350:d=1');
+      const charFilter=source?`scale=430:610:force_original_aspect_ratio=decrease,pad=430:610:(ow-iw)/2:(oh-ih)/2:color=0xf4f0e8[img];color=c=0xf4f0e8:s=1080x1350:d=1[bg];[bg][img]overlay=570:650,ass=${sub}`:`ass=${sub}`;
+      charArgs.push('-filter_complex',charFilter,'-frames:v','1','-q:v','2','-threads','1',out);
+      await run('ffmpeg',charArgs);
       outputs.push((await registerOutput(store,out,{kind:'image',name:`99-characteristics-${page+1}.jpg`})).id);
     }
   }
-  item.notes=[`Відібрано ${photos.length} кадрів із ${available.length} доступних.`];
+  item.notes=[`Відібрано ${photos.length} кадрів із ${available.length} доступних.`, 'Обкладинка та слайд характеристик оформлені компактно, з більшим акцентом на фото товару.'];
   item.mediaAssetIds=photos.map(a=>a.id);item.outputIds=outputs;item.coverId=outputs[0];return item;
 }
 export async function renderItem(store,ai,plan,item) {
