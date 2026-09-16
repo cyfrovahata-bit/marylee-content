@@ -59,7 +59,7 @@ export class ContentQueue {
     const pending=this.store.list('image-job').filter(j=>j.status==='EXPORTING');if(!pending.length)return;
     const roots=await this.setup(),rows=await this.rows();
     for(const job of pending) {
-      const plan=this.store.get('plan',job.date),item=plan?.items.find(i=>i.id===job.itemId);
+      const plan=this.store.get('plan',job.planDate||job.date),item=plan?.items.find(i=>i.id===job.itemId);
       if(item?.externalJobId!==job.id||['posted','skipped'].includes(item.status)){this.store.put('image-job',{...job,status:'CANCELLED'});continue;}
       const temp=path.join(this.store.dir,'work',randomUUID()+'.json');
       if(!job.briefFileId)try{
@@ -76,7 +76,7 @@ export class ContentQueue {
     }
   }
   async importResult(job,fileId) {
-    const before=this.store.get('plan',job.date)?.items.find(i=>i.id===job.itemId);
+    const before=this.store.get('plan',job.planDate||job.date)?.items.find(i=>i.id===job.itemId);
     if(before?.externalJobId!==job.id||['posted','skipped'].includes(before.status))throw new Error('Матеріал більше не очікує це завдання');
     const revision=before.revision;
     const roots=this.store.get('integration','drive'),meta=await this.drive.scoped(fileId);
@@ -85,7 +85,7 @@ export class ContentQueue {
     try {
       await this.drive.download(meta,zip,50*1024*1024);const bundle=readBundle(await readFile(zip),job),ids=[];
       for(const image of bundle.images){const temp=path.join(this.store.dir,'work',randomUUID()+path.extname(image.name));try{await writeFile(temp,image.bytes);const asset=await saveAsset(this.store,temp,{name:image.name,source:'ai',driveId:fileId});asset.layout=job.kind==='poll'?'diptych':'scene';this.store.put('asset',asset);ids.push(asset.id);}finally{await rm(temp,{force:true});}}
-      const plan=this.store.get('plan',job.date),item=plan?.items.find(i=>i.id===job.itemId);
+      const plan=this.store.get('plan',job.planDate||job.date),item=plan?.items.find(i=>i.id===job.itemId);
       if(item?.externalJobId!==job.id||item.revision!==revision||['posted','skipped'].includes(item.status))throw new Error('Матеріал змінився. Застарілий ZIP не застосовано.');
       const m=bundle.manifest;item.selectedAssetIds=ids;item.approvedAssetIds=ids;item.factCheck=m.fact_check;item.approvedStory=job.kind==='reel-tip'?{title:m.title,lines:m.lines}:{pollQuestion:m.poll_question,pollOptions:m.poll_options};
       if(job.kind==='reel-tip'){item.title=m.title;item.lines=m.lines;item.caption='';}else{item.pollQuestion=m.poll_question;item.pollOptions=m.poll_options;item.caption='';}
@@ -99,7 +99,7 @@ export class ContentQueue {
     await this.exportPending();const rows=await this.rows();let imported=0;
     for(const row of rows) {
       const job=this.store.get('image-job',row.v[0]);if(!job)continue;
-      const plan=this.store.get('plan',job.date),item=plan?.items.find(i=>i.id===job.itemId);
+      const plan=this.store.get('plan',job.planDate||job.date),item=plan?.items.find(i=>i.id===job.itemId);
       const write=async status=>{job.status=status;job.row=row.row;await this.drive.sheet(`A${row.row}:L${row.row}`,[rowValues(job)]);this.store.put('image-job',job);};
       if(item?.externalJobId!==job.id||item.status==='skipped'){if(row.v[1]!=='CANCELLED')await write('CANCELLED');continue;}
       if(job.status==='IMPORTED'){if(row.v[1]!=='IMPORTED')await write('IMPORTED');continue;}
@@ -112,7 +112,7 @@ export class ContentQueue {
       if(status==='READY')try{
         if(!/^[\w-]{5,150}$/.test(row.v[6]||''))throw new Error('Немає ID готового ZIP');
         // Do not mutate a plan currently held by a queued/running renderer.
-        if(this.store.activeJobs().some(j=>j.type==='prepare'&&j.target===job.date))continue;
+        if(this.store.activeJobs().some(j=>j.type==='prepare'&&j.target===(job.planDate||job.date)))continue;
         await this.importResult(job,row.v[6]);await write('IMPORTED');imported++;continue;
       }catch(e){if(this.store.get('image-job',job.id)?.status==='IMPORTED')throw e;job.error=e.message;await write('ERROR');continue;}
       if(['NEW','WORKING','ERROR','CANCELLED'].includes(status)){job.status=status;job.error=String(row.v[7]||'').slice(0,600);this.store.put('image-job',job);}

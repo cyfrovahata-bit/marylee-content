@@ -13,6 +13,7 @@ import { Worker } from './worker.js';
 import { cleanProduct, productAssets } from './catalog.js';
 import { createPlan, createBatch, eligibleProducts, itemInstruction, itemGoal } from './planner.js';
 import { hourlyPrompt } from './queue.js';
+import { reschedulePlans } from './reschedule.js';
 import { resetContent, restoreContent } from './reset.js';
 import { IMAGE_API_DISABLED, drawingPrompt, imageSource, illustrationSignature, resetIllustration, invalidateDependents } from './editorial.js';
 import { kyivToday, shiftDate, validDate } from './kyiv.js';
@@ -69,11 +70,16 @@ export function createApp(config,{store=new Store(config.dataDir),ai=new AI(conf
           dates:store.list('plan').map(p=>p.id).sort(),products:store.list('product').sort((a,b)=>b.createdAt.localeCompare(a.createdAt)),
           assets:store.list('asset').filter(a=>!a.disabled),eligible:eligibleProducts(store,date).map(p=>p.id),
           jobs:store.jobs(),settings:store.settings(),usage:store.usage(),drive:store.get('integration','drive'),driveExport:store.get('drive-export',date),
-          imageJobs:store.list('image-job').filter(j=>j.date===date),queueNotice:store.get('notice','queue-error')||store.get('notice','queue-sync'),
+          imageJobs:store.list('image-job').filter(j=>(j.planDate||j.date)===date),queueNotice:store.get('notice','queue-error')||store.get('notice','queue-sync'),
           resets:store.list('reset').filter(r=>r.status==='complete').sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,1),maintenance,
           setup:{text:Boolean(config.openaiKey),imageGeneration:false,voice:config.voiceProvider==='elevenlabs'?Boolean(config.elevenKey&&config.elevenVoice):Boolean(config.openaiKey),drive:drive.configured(),voiceProvider:config.voiceProvider},notices:store.list('notice')});
       }
       if(p==='/api/settings'&&method==='PUT')return json(res,200,store.setSettings(validateSettings(await body(req))));
+      if(p==='/api/plans/reschedule'&&method==='POST'){
+        const input=await body(req);
+        if(uploads||worker.busy)throw new Error('Дочекайся завершення поточних завдань перед перенесенням');
+        return json(res,200,reschedulePlans(store,input));
+      }
       if(p==='/api/plans/batch'&&method==='POST'){
         if(uploads||store.activeJobs().some(j=>j.type==='import'))throw new Error('Дочекайся завершення завантаження товарів');
         return json(res,201,createBatch(store));

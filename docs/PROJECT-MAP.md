@@ -51,6 +51,8 @@
 
 - `GET /api/state?date=YYYY-MM-DD` — каталог, план, завдання, резерви, ознаки налаштування без ключів.
 - `POST /api/plans/batch` — планування незапланованого каталогу із завтра, ідемпотентне.
+- `POST /api/plans/reschedule` `{dates:["YYYY-MM-DD",…],startDate:"YYYY-MM-DD",requestId:"унікальний-ID"}` — переносить неопубліковані дні зі збереженням інтервалів, текстів, готових файлів, статусів і лімітів. Код: `src/reschedule.js`; перевірка: `node --test test/reschedule.test.js`. Зайняті дати, опубліковані матеріали та активні завдання блокують перенесення. Повтор того самого requestId не зсуває дні вдруге; знімок до перенесення збережено в archived-plan.
+- Після перенесення `image-job.planDate` вказує на новий план; `image-job.date`, дата в Sheets, JSON та ZIP залишаються початковими реквізитами завдання GPT. Це зберігає сумісність уже створених і незавершених архівів. Нові генерації використовують нову дату. Наявний ZIP дня на Drive зберігає початкову дату пакування (`drive-export.sourceDate`); повторний експорт створить пакет нової дати без генерації.
 - `POST /api/queue/sync`, `GET /api/queue/prompt` — перевірка Drive та актуальний промпт щогодини.
 - `POST /api/content/reset` `{confirm:"MARYLEE"}`, `POST /api/content/restore` `{id}` — очищення та відновлення до нового завантаження; integration/settings/usage збережено.
 - Таблиця Queue: `1G55IRRugATfv_l1gqDlPOrCcqVJ2YSj3ryC25CIKsSw`, Marylee root `1i0azNN9VkiD7hSsYTjkGPhQfl2elQHeO`. Протокол/колонки/ліміти — у `docs/GPT-QUEUE.md`. Не чіпати стару YouTube таблицю. При зміні шаблонів збільшити templateVersion у `ContentQueue.setup`, щоб оновити їхні копії на Drive.
