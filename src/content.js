@@ -20,6 +20,7 @@ export function captionLimit(item,product=null) {
   const facts=reelFacts(product);return 250-(facts?facts.length+2:0);
 }
 export const VOICE_STYLE='Speak natural, idiomatic Ukrainian as a real woman casually sharing a useful style tip with a friend. Keep the voice warm, relaxed and present, with a subtle smile and medium energy. Use conversational phrasing, varied sentence-specific intonation, gentle emphasis on the useful words, and small natural pauses where a person would breathe. Let the delivery feel spontaneous rather than perfectly metronomic. Avoid presenter, announcer and advertising cadence; avoid exaggerated enthusiasm, sing-song melody, overly crisp diction, breathiness, and robotic pacing. Never rush the ending. Read only the supplied Ukrainian text exactly; do not add words, labels, or stage directions.';
+export const ELEVEN_VOICE_SETTINGS=Object.freeze({stability:.45,similarity_boost:.75,style:.12,use_speaker_boost:true,speed:.98});
 export const salesReel=item=>item.kind==='reel'&&(Boolean(item.productId)||item.purpose==='sale');
 export const usesVoice=(item,settings)=>item.kind==='reel'&&!salesReel(item)&&settings.voiceEnabled;
 

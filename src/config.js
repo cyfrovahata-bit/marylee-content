@@ -37,9 +37,9 @@ export function configFrom(env = process.env) {
     imageModel: env.MARYLEE_IMAGE_MODEL || 'gpt-image-1',
     // Marylee has its own voice profile; legacy YouTube/TikTok TTS settings
     // must not silently select the old channel voice.
-    voiceProvider: ['elevenlabs', 'eleven'].includes(env.MARYLEE_TTS_ENGINE) ? 'elevenlabs' : 'openai',
+    voiceProvider: env.ELEVENLABS_API_KEY || ['elevenlabs', 'eleven'].includes(env.MARYLEE_TTS_ENGINE) ? 'elevenlabs' : 'openai',
     openaiVoice: env.MARYLEE_OPENAI_VOICE || 'marin', elevenKey: env.ELEVENLABS_API_KEY || '',
-    elevenVoice: env.TTS_ELEVEN_VOICE_ID || '', elevenModel: env.TTS_ELEVEN_MODEL || 'eleven_multilingual_v2',
+    elevenVoice: env.TTS_ELEVEN_VOICE_ID || '2OXYbN1uGomXXJtv9Dq6', elevenModel: env.TTS_ELEVEN_MODEL || 'eleven_multilingual_v2',
     textReserve: positive('MARYLEE_TEXT_RESERVE_USD', .10),
     imageReserve: positive('MARYLEE_IMAGE_RESERVE_USD', .30),
     voiceReserve: positive('MARYLEE_VOICE_RESERVE_PER_1000', .50),

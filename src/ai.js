@@ -4,7 +4,7 @@ import path from 'node:path';
 import { exists, mediaPath } from './files.js';
 import { numbersToWords } from './num2words-uk.js';
 import { productAssets } from './catalog.js';
-import { captionLimit, publicProduct, reelFacts, salesReel, slotBrief, VOICE_STYLE } from './content.js';
+import { captionLimit, ELEVEN_VOICE_SETTINGS, publicProduct, reelFacts, salesReel, slotBrief, VOICE_STYLE } from './content.js';
 import { IMAGE_API_DISABLED } from './editorial.js';
 
 const str={type:'string'};
@@ -157,7 +157,7 @@ export class AI {
     const c=this.config;
     const spoken=numbersToWords(text.replace(/\bгрн\b/gu,'гривень'));
     if(spoken.length>2200) throw new Error('Скороти одну сцену озвучки до 2200 символів');
-    const key=createHash('sha256').update(JSON.stringify([c.voiceProvider,c.openaiVoice,c.elevenVoice,c.elevenModel,VOICE_STYLE,spoken])).digest('hex');
+    const key=createHash('sha256').update(JSON.stringify([c.voiceProvider,c.openaiVoice,c.elevenVoice,c.elevenModel,VOICE_STYLE,ELEVEN_VOICE_SETTINGS,spoken])).digest('hex');
     const file=path.join(this.store.dir,'cache',key+'.mp3');
     if(await exists(file)) return file;
     if(c.voiceProvider==='elevenlabs'&&(!c.elevenKey||!c.elevenVoice)) throw new Error('Додай ELEVENLABS_API_KEY і TTS_ELEVEN_VOICE_ID або вибери MARYLEE_TTS_ENGINE=openai.');
@@ -166,7 +166,7 @@ export class AI {
     const eleven=c.voiceProvider==='elevenlabs';
     const res=await this.request(eleven?`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(c.elevenVoice)}?output_format=mp3_44100_128`:'https://api.openai.com/v1/audio/speech',{
       method:'POST',headers:eleven?{'xi-api-key':c.elevenKey,'Content-Type':'application/json'}:{Authorization:`Bearer ${c.openaiKey}`,'Content-Type':'application/json'},
-      body:JSON.stringify(eleven?{text:spoken,model_id:c.elevenModel,language_code:'uk'}:{model:'gpt-4o-mini-tts',voice:c.openaiVoice,input:spoken,instructions:VOICE_STYLE,speed:0.98,response_format:'mp3'}),
+      body:JSON.stringify(eleven?{text:spoken,model_id:c.elevenModel,language_code:'uk',voice_settings:ELEVEN_VOICE_SETTINGS}:{model:'gpt-4o-mini-tts',voice:c.openaiVoice,input:spoken,instructions:VOICE_STYLE,speed:0.98,response_format:'mp3'}),
     });
     const bytes=Buffer.from(await res.arrayBuffer());
     if(bytes.length<100) throw new Error('Сервіс повернув порожню озвучку');

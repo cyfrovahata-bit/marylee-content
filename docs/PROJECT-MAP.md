@@ -38,7 +38,7 @@
 
 - Тема поради не передається продажним слотам. Опис Reel разом із короткими фактами до 250 символів, далі 15–20 ключових слів і п’ять малих хештегів. Сторіз — до 90 символів.
 - Тексти: `MARYLEE_TEXT_MODEL`, стандартно GPT-4.1. Малювання через API вимкнено на рівні HTTP, Worker та AI.image; старі змінні imageModel/imageReserve не запускають малювання.
-- Голос порад: `MARYLEE_TTS_ENGINE=openai`, `MARYLEE_OPENAI_VOICE=marin`. Старі `TTS_ENGINE` і `TTS_OPENAI_VOICE` не визначають голос Marylee.
+- Голос порад: ElevenLabs через `ELEVENLABS_API_KEY` і `TTS_ELEVEN_VOICE_ID`; модель `eleven_multilingual_v2`. Обраний Voice ID Marylee: `2OXYbN1uGomXXJtv9Dq6`.
 - Продажний Reel: чотири короткі написи, приблизно 15 секунд, тиха звукова доріжка. Тільки оригінали товару.
 - Нові плани: externalImages=true у morning і poll. Reel очікує 4 окремі фото та перевірені репліки; poll — власний diptych. Шаблони загальні, змінні у JSON. Старий ручний маршрут з одним diptych збережено лише для сумісності. Текстовий API не замінює approvedStory; після збою підтвердження Sheets імпорт не повторюється.
 - Без зображення ранковий Reel і залежні матеріали мають статус awaiting-image; товарні слоти завершуються. waiting-parent означає очікування готового Reel для поширення. Це не помилка провайдера.
