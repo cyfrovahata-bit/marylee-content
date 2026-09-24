@@ -8,6 +8,15 @@ import { captionLimit, ELEVEN_VOICE_SETTINGS, publicProduct, reelFacts, salesRee
 import { IMAGE_API_DISABLED } from './editorial.js';
 
 const str={type:'string'};
+const pronunciations=new Map([
+  ['спідниця','спідни́ця'],['спідниці','спідни́ці'],['спідницю','спідни́цю'],
+  ['спідницею','спідни́цею'],['спідниць','спідни́ць'],
+]);
+export function speechText(value) {
+  let text=String(value);
+  for(const [word,spoken] of pronunciations)text=text.replace(new RegExp(`(?<!\\p{L})${word}(?!\\p{L})`,'giu'),match=>match===match.toLocaleUpperCase('uk-UA')?spoken.toLocaleUpperCase('uk-UA'):match[0]===match[0].toLocaleUpperCase('uk-UA')?spoken[0].toLocaleUpperCase('uk-UA')+spoken.slice(1):spoken);
+  return text;
+}
 const itemSchema={type:'object',additionalProperties:false,properties:{
   slotId:str,title:str,caption:str,keywords:{type:'array',items:str},hashtags:{type:'array',items:str},
   lines:{type:'array',items:str},pollQuestion:str,pollOptions:{type:'array',items:str},
@@ -155,7 +164,7 @@ export class AI {
   }
   async voice(text) {
     const c=this.config;
-    const spoken=numbersToWords(text.replace(/\bгрн\b/gu,'гривень'));
+    const spoken=speechText(numbersToWords(text.replace(/\bгрн\b/gu,'гривень')));
     if(spoken.length>2200) throw new Error('Скороти одну сцену озвучки до 2200 символів');
     const key=createHash('sha256').update(JSON.stringify([c.voiceProvider,c.openaiVoice,c.elevenVoice,c.elevenModel,VOICE_STYLE,ELEVEN_VOICE_SETTINGS,spoken])).digest('hex');
     const file=path.join(this.store.dir,'cache',key+'.mp3');

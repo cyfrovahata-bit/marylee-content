@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Store } from '../src/store.js';
 import { configFrom } from '../src/config.js';
-import { AI, captionFor, copySchema, validateCopy } from '../src/ai.js';
+import { AI, captionFor, copySchema, speechText, validateCopy } from '../src/ai.js';
 import { publicProduct, captionLimit, slotBrief, usesVoice } from '../src/content.js';
 import { createPlan } from '../src/planner.js';
 import { createApp } from '../src/server.js';
@@ -51,10 +51,14 @@ test('ElevenLabs becomes the Marylee voice when its key is configured',async t=>
   assert.equal(config.voiceProvider,'elevenlabs');
   const ai=new AI(config,s,async(url,options)=>{
     assert.match(url,/\/v1\/text-to-speech\/2OXYbN1uGomXXJtv9Dq6/);assert.equal(options.headers['xi-api-key'],'test');
-    const body=JSON.parse(options.body);assert.equal(body.model_id,'eleven_multilingual_v2');assert.equal(body.language_code,'uk');
+    const body=JSON.parse(options.body);assert.equal(body.model_id,'eleven_multilingual_v2');assert.equal(body.language_code,'uk');assert.equal(body.text,'Ця спідни́ця пасує до спідни́ці.');
     assert.deepEqual(body.voice_settings,{stability:.45,similarity_boost:.75,style:.12,use_speaker_boost:true,speed:.98});
     return new Response(Buffer.alloc(150,1));
-  });await ai.voice('Порівняй ці образи.');
+  });await ai.voice('Ця спідниця пасує до спідниці.');
+});
+test('speech pronunciation hints never alter the visible copy',()=>{
+  const visible='Спідниця, спідницю та спідницею';
+  assert.equal(speechText(visible),'Спідни́ця, спідни́цю та спідни́цею');assert.equal(visible,'Спідниця, спідницю та спідницею');
 });
 test('quality validation rejects overly long stories and Russian keywords',()=>{
   const value={slotId:'poll',title:'Обери образ',caption:'а'.repeat(91),keywords:[],hashtags:[],lines:[],pollQuestion:'Що обереш?',pollOptions:['Лівий образ','Правий образ'],imagePrompt:'',assetIds:[],detailFocus:'full'};
