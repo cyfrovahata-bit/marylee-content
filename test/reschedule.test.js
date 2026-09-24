@@ -27,7 +27,7 @@ async function fixture(t) {
   return {s,dates,startDate,input:{dates,startDate,requestId:'move-test-001'}};
 }
 function drive(s) {
-  const roots={id:'drive',results:'results',briefs:'briefs',templateVersion:1,queueSheetId:'queue-sheet',templates:{'reel-tip':{id:'tip-template'},poll:{id:'poll-template'}}};
+  const roots={id:'drive',results:'results',briefs:'briefs',templateVersion:2,queueSheetId:'queue-sheet',templates:{'reel-tip':{id:'tip-template'},poll:{id:'poll-template'}}};
   s.put('integration',roots);const rows=[],uploads=[];
   return {rows,uploads,configured:()=>true,
     sheet:async(range,values)=>{if(!values)return {values:[QUEUE_HEADER,...rows]};rows[Number(range.match(/A(\d+)/)[1])-11]=values[0];return {};},
@@ -87,9 +87,9 @@ test('a not-yet-exported GPT job survives rescheduling and exports once',async t
   const {s,dates,startDate,input}=await fixture(t),d=drive(s),q=new ContentQueue(s,d);
   d.configured=()=>false;await assert.rejects(()=>q.ensure(s.get('plan',dates[0])),/підключи/);
   reschedulePlans(s,input);d.configured=()=>true;await q.exportPending();
-  assert.equal(d.uploads.length,2);assert.ok(d.uploads.every(b=>b.date===dates[0]));
+  assert.equal(d.uploads.length,1);assert.ok(d.uploads.every(b=>b.date===dates[0]));
   assert.ok(s.list('image-job').every(j=>j.planDate===startDate&&j.status==='NEW'));
-  await q.exportPending();assert.equal(d.uploads.length,2);
+  await q.exportPending();assert.equal(d.uploads.length,1);
 });
 test('HTTP move and state expose the new dates without preparing or generating anything',async t=>{
   const {s,dates,startDate,input}=await fixture(t),d=drive(s),q=new ContentQueue(s,d);await q.ensure(s.get('plan',dates[0]));
@@ -99,7 +99,7 @@ test('HTTP move and state expose the new dates without preparing or generating a
     const denied=await fetch(root+'/api/plans/reschedule',{method:'POST',body:JSON.stringify(input)});assert.equal(denied.status,403);
     const response=await fetch(root+'/api/plans/reschedule',{method:'POST',headers:{'X-Marylee':'1','Content-Type':'application/json'},body:JSON.stringify(input)});assert.equal(response.status,200);
     const state=await (await fetch(root+'/api/state?date='+startDate)).json();
-    assert.deepEqual(state.dates,[startDate,shiftDate(startDate,1)]);assert.equal(state.plan.id,startDate);assert.equal(state.imageJobs.length,2);assert.equal(state.jobs.length,0);
+    assert.deepEqual(state.dates,[startDate,shiftDate(startDate,1)]);assert.equal(state.plan.id,startDate);assert.equal(state.imageJobs.length,1);assert.equal(state.jobs.length,0);
     const old=await (await fetch(root+'/api/state?date='+dates[0])).json();assert.equal(old.plan,null);assert.equal(old.imageJobs.length,0);
   }finally{await new Promise(r=>app.server.close(r));}
 });

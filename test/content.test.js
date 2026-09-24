@@ -52,15 +52,15 @@ test('quality validation rejects overly long stories and Russian keywords',()=>{
   assert.throws(()=>validateCopy({items:[value]},slots),/довжину caption/);
   value.caption='Який образ тобі ближчий?';value.keywords=['лето'];assert.throws(()=>validateCopy({items:[value]},slots),/мовну помилку/);
 });
-test('full regeneration replaces one unpublished item and refreshes its repost; posted items and originals survive',async t=>{
+test('full regeneration replaces one unpublished item; posted items and originals survive',async t=>{
   const s=await fixture(t);
   for(const name of ['Костюм','Сукня']) {const p=s.put('product',cleanProduct({name,ready:true}));s.put('asset',{id:'source-'+p.id,productId:p.id,source:'original',kind:'video'});}
   const plan=createPlan(s,'2026-09-10');
   for(const i of plan.items){i.title='Стара назва';i.caption='Збережений підпис';i.status='ready';i.outputIds=['old-'+i.id];i.coverId='cover-old';}
   plan.items[0].status='posted';plan.items[0].captionSnapshot='Опублікований текст';s.put('plan',plan);
-  const originals=s.list('asset'),unrelated=structuredClone(plan.items.filter(i=>!['evening','share-evening'].includes(i.id)));
+  const originals=s.list('asset'),unrelated=structuredClone(plan.items.filter(i=>i.id!=='evening'));
   const requested=[];const ai={config:{},copy:async(_p,items)=>{requested.push(items.map(i=>i.id));return items.map(i=>({slotId:i.id,title:'Новий огляд сукні',caption:'Розглянь інший ракурс.',keywords:[],hashtags:[],lines:['Сукня','Деталь','Поєднання','Замовлення'],pollQuestion:'',pollOptions:[],imagePrompt:'',assetIds:[],detailFocus:'full'}));}};
-  const worker=new Worker(s,ai,{configured:()=>false},{renderer:async(_s,_a,p,i)=>{i.outputIds=i.purpose==='repost'?[...p.items.find(parent=>parent.id===i.dependsOn).outputIds]:['new-video'];i.coverId='new-cover';i.status='ready';}});
+  const worker=new Worker(s,ai,{configured:()=>false},{renderer:async(_s,_a,_p,i)=>{i.outputIds=['new-video'];i.coverId='new-cover';i.status='ready';}});
   const app=createApp(configFrom({}),{store:s,startWorker:false});await new Promise(r=>app.server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>app.server.close(r)));
   const endpoint=`http://127.0.0.1:${app.server.address().port}/api/plans/${plan.id}/prepare`;
   const request=itemId=>fetch(endpoint,{method:'POST',headers:{'X-Marylee':'1','Content-Type':'application/json'},body:JSON.stringify({itemId,mode:'all'})});
@@ -68,8 +68,8 @@ test('full regeneration replaces one unpublished item and refreshes its repost; 
   assert.equal((await request('evening')).status,202);assert.equal((await request('evening')).status,400);await worker.tick();
   const saved=s.get('plan',plan.id);assert.deepEqual(requested,[['evening']]);
   assert.equal(saved.items.find(i=>i.id==='evening').title,'Новий огляд сукні');assert.equal(saved.items.find(i=>i.id==='evening').coverId,'new-cover');
-  assert.deepEqual(saved.items.find(i=>i.id==='share-evening').outputIds,['new-video']);
-  assert.deepEqual(saved.items.filter(i=>!['evening','share-evening'].includes(i.id)),unrelated);assert.deepEqual(s.list('asset'),originals);
+  assert.equal(saved.items.some(i=>i.kind==='story'),false);
+  assert.deepEqual(saved.items.filter(i=>i.id!=='evening'),unrelated);assert.deepEqual(s.list('asset'),originals);
 });
 
 test('direct image generation is disabled before network or budget use',async t=>{

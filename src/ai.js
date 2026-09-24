@@ -25,7 +25,7 @@ export function copySchema(items,store=null) {
       caption:{type:'string',minLength:1,maxLength:captionLimit(item,store?.get('product',item.productId))},
       keywords:item.kind==='reel'?list(15,20):list(0,0),
       hashtags:item.kind==='story'?list(0,0):list(5,5),
-      lines:item.kind==='reel'?{...list(4,4),items:{type:'string',minLength:1,maxLength:salesReel(item)?40:180}}:list(0,0),
+      lines:item.kind==='reel'||item.kind==='carousel'?{...list(4,4),items:{type:'string',minLength:1,maxLength:item.kind==='carousel'||salesReel(item)?40:180}}:list(0,0),
       pollQuestion:item.purpose==='poll'?{type:'string',enum:['Який образ обираєте?','Який варіант вам ближчий?','Який образ пасує вашому настрою?']}:{type:'string',enum:['']},
       pollOptions:item.purpose==='poll'?{...list(2,2),items:{type:'string',maxLength:18}}:list(0,0),
       imagePrompt:item.purpose==='useful'?{type:'string',maxLength:2200}:{type:'string',enum:['']},
@@ -56,12 +56,12 @@ const system=`Ти редактор Marylee Shop. Пиши живою приро
 Пост і Reel одного товару мають різні ідеї. Заборонені штампи «ідеальний вибір», «must have», «неповторний шарм», «витонченість», «імпульс образу».
 Вичитай мову: «лляний», «зайвий», «літо», жодних «льняний», «лишній», «лето», «одежда». Keywords теж українські. Імена брендів можна залишати оригінальними.
 Заголовок title до 58 символів, для сторіз до 46. Reel: caption 1–2 короткі ЗАВЕРШЕНІ речення; цільова довжина до 150 символів і в будь-якому разі менше slots.captionMax. Не намагайся заповнити весь ліміт і не обривай слова чи речення. 15–20 релевантних keywords окремо, рівно 5 hashtags малими.
-Карусель: caption 180–500 символів, рівно 5 hashtags малими. Сторіз: одна фраза до 90 символів, без хештегів. Не дублюй title у caption.
+Карусель: caption 180–500 символів, рівно 5 hashtags малими та рівно чотири короткі lines для написів на фото. Сторіз: одна фраза до 90 символів, без хештегів. Не дублюй title у caption.
 Корисний Reel: рівно чотири lines живої озвучки, 40–60 слів разом. Товарний Reel: рівно чотири дуже короткі написи до 40 символів, БЕЗ голосового сценарію.
-Лише корисний ранковий матеріал пояснює brief.topic з конкретним порівнянням одягу. Без неперевірених історичних або наукових тверджень. Образи з ілюстрації не є товарами з каталогу.
+Лише ранковий матеріал пояснює brief.topic. Це актуальна новина моди, порада про одяг або порада зі стилю; без довгої розповіді та без неперевірених тверджень. Образи з ілюстрації не є товарами з каталогу.
 Опитування: вибери одне завершене запитання з варіантів схеми та рівно дві різні короткі відповіді, без приманки активності. Для інших слотів pollQuestion порожнє.
 Підбирай assetIds лише серед наданих для цього товару: загальний вигляд, інший ракурс, деталь; не дублюй ідентифікатори.
-imagePrompt потрібен лише для useful: два конкретних, повністю описаних образи поруч (LEFT / RIGHT), без написів і логотипів. У всіх товарних слотах imagePrompt порожній. detailFocus потрібен для detail, для решти full.
+imagePrompt потрібен лише для useful: чотири повноекранні вертикальні сцени, що точно ілюструють чотири lines, без написів і логотипів. У всіх товарних слотах imagePrompt порожній. detailFocus потрібен для detail, для решти full.
 Не повторюй previous навіть іншими словами: зміни гачок і підхід у межах завдання цього слота. Врахуй уже підготовлені today тексти; не позичай їхні ідеї для іншого товару.
 Внутрішні завдання редактору (вибрати ракурси, змонтувати, додати написи) виконуй у відповідних полях JSON. НІКОЛИ не перетворюй їх на фрази до покупця в caption, title чи lines. Caption звучить як допис магазину до читачки, не як інструкція власнику магазину.
 Не вигадуй ключових слів заради кількості: використовуй короткі природні пошукові фрази з типом одягу, реальною тканиною, видимим кольором і нейтральними способами носіння. Без вигаданих слів, «летючого фасону», тверджень «під замовлення», «комфортний» чи «універсальний», якщо дані цього не підтверджують.
@@ -99,6 +99,7 @@ export function validateCopy(data,items,history=[],store=null) {
     if(!value.title.trim()||!value.caption.trim()||/\d/.test(value.caption)) throw new Error('Творчий текст має бути заповнений і без непідтверджених числових параметрів');
     for(const key of ['lines','hashtags','keywords','assetIds','pollOptions']) if(!Array.isArray(value[key])||value[key].some(x=>typeof x!=='string'||x.length>600)) throw new Error('ШІ повернув некоректні списки');
     if(slot.kind==='reel'&&(value.lines.length!==4||value.lines.some(l=>l.length>(salesReel(slot)?40:180)))) throw new Error('Потрібно чотири короткі сцени для Reel');
+    if(slot.kind==='carousel'&&(value.lines.length!==4||value.lines.some(l=>l.length>40))) throw new Error('Для каруселі потрібно чотири короткі написи на фото');
     if(slot.kind==='reel'&&(value.keywords.length<15||value.keywords.length>20)) throw new Error('Для Reel потрібно 15–20 ключових слів');
     const hashtags=[...new Set(value.hashtags.map(t=>'#'+t.replace(/^#+/,'').toLowerCase().replace(/[^\p{L}\p{N}_]/gu,'')))].filter(t=>t.length>1);
     if(slot.kind!=='story'&&hashtags.length!==5) throw new Error('Для допису потрібно 5 різних хештегів');

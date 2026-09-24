@@ -42,13 +42,13 @@ test('Kyiv calendar keeps local midnight and DST transitions',()=>{
   assert.equal(kyivMinutes(new Date('2026-07-01T19:30:00Z')),22*60+30);
   assert.equal(shiftDate('2026-10-25',1),'2026-10-26');assert.equal(validDate('2026-02-31'),false);
 });
-test('two distinct products, chronological slots, cooldown and single-product fallback',async t=>{
+test('one product powers the chronological three-post Facebook day',async t=>{
   const s=await fixture(t),A=addProduct(s,'Сукня'),B=addProduct(s,'Жакет');
-  const p=createPlan(s,'2026-09-10');assert.equal(p.items.length,8);assert.deepEqual(p.items.map(i=>i.time),['09:00','09:00','12:00','14:00','15:30','18:30','19:30','19:30']);
-  assert.notEqual(p.items.find(i=>i.id==='carousel').productId,p.items.find(i=>i.id==='evening').productId);
-  assert.equal(createPlan(s,'2026-09-10').createdAt,p.createdAt);assert.equal(eligibleProducts(s,'2026-09-11').length,0);
+  const p=createPlan(s,'2026-09-10');assert.equal(p.items.length,3);assert.deepEqual(p.items.map(i=>i.time),['09:00','14:00','19:30']);
+  assert.equal(p.items.find(i=>i.id==='carousel').productId,p.items.find(i=>i.id==='evening').productId);
+  assert.equal(createPlan(s,'2026-09-10').createdAt,p.createdAt);assert.equal(eligibleProducts(s,'2026-09-11').length,1);
   assert.equal(eligibleProducts(s,'2026-09-17').length,2);
-  assert.throws(()=>createPlan(s,'2026-09-11',[A.id,A.id]),/різних/);
+  assert.throws(()=>createPlan(s,'2026-09-11',[A.id,B.id]),/один товар/);
   const single=createPlan(s,'2026-09-11',[B.id]);assert.equal(single.items.find(i=>i.id==='carousel').productId,B.id);assert.equal(single.items.find(i=>i.id==='evening').productId,B.id);
 });
 test('job deduplication, ledger limits and persisted interruption recovery',async t=>{
@@ -79,7 +79,7 @@ test('TTS cache survives repeated calls without paying twice',async t=>{
 });
 test('generation rejects missing slots and copied captions',()=>{
   assert.throws(()=>validateCopy({items:[]},[{id:'morning'}]),/неповний/);
-  const base={slotId:'carousel',title:'Колір',caption:'Одна деталь збирає весь образ у цілісну історію',keywords:[],hashtags:['#стиль','#одяг','#мода','#образ','#marylee'],lines:[],pollQuestion:'',pollOptions:[],imagePrompt:'',assetIds:[]};
+  const base={slotId:'carousel',title:'Колір',caption:'Одна деталь збирає весь образ у цілісну історію',keywords:[],hashtags:['#стиль','#одяг','#мода','#образ','#marylee'],lines:['Покажи образ','Розглянь деталь','Додай аксесуар','Напиши нам'],pollQuestion:'',pollOptions:[],imagePrompt:'',assetIds:[]};
   assert.throws(()=>validateCopy({items:[base]},[{id:'carousel',kind:'carousel'}],[base.caption]),/схожий/);
 });
 test('worker resumes only unfinished items after a render failure',async t=>{
@@ -120,11 +120,11 @@ test('published captions keep the price that was actually marked as posted',asyn
 
 test('replacing a draft is atomic and cannot erase a day with published posts',async t=>{
   const s=await fixture(t);s.setSettings({autoPrepare:false});const A=addProduct(s,'Сукня'),B=addProduct(s,'Жакет');
-  createPlan(s,'2026-09-10',[A.id,B.id]);
+  createPlan(s,'2026-09-10',[A.id]);
   const app=createApp(configFrom({}),{store:s,startWorker:false});await new Promise(r=>app.server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>app.server.close(r)));
   const root=`http://127.0.0.1:${app.server.address().port}`;
   const post=data=>fetch(root+'/api/plans',{method:'POST',headers:{'X-Marylee':'1','Content-Type':'application/json'},body:JSON.stringify({date:'2026-09-10',prepare:false,replace:true,...data})});
-  assert.equal((await post({productIds:['missing']})).status,400);assert.deepEqual(s.get('plan','2026-09-10').productIds,[A.id,B.id]);assert.equal(s.list('archived-plan').length,0);
+  assert.equal((await post({productIds:['missing']})).status,400);assert.deepEqual(s.get('plan','2026-09-10').productIds,[A.id]);assert.equal(s.list('archived-plan').length,0);
   assert.equal((await post({productIds:[B.id]})).status,201);assert.deepEqual(s.get('plan','2026-09-10').productIds,[B.id]);assert.equal(s.list('archived-plan').length,1);
   const p=s.get('plan','2026-09-10');p.items[0].status='posted';s.put('plan',p);
   assert.equal((await post({productIds:[A.id]})).status,400);assert.deepEqual(s.get('plan','2026-09-10').productIds,[B.id]);

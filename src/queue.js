@@ -32,14 +32,14 @@ export class ContentQueue {
   async setup() {
     if(!this.configured())throw new Error('Вкажи ID таблиці черги в налаштуваннях Marylee');
     const cached=this.store.get('integration','drive');
-    if(cached?.templateVersion===1&&cached.queueSheetId===this.store.settings().queueSheetId)return cached;
+    if(cached?.templateVersion===2&&cached.queueSheetId===this.store.settings().queueSheetId)return cached;
     const roots=await this.drive.queueFolders();await this.rows();
     const templates={...roots.templates};
     for(const kind of ['reel-tip','poll']) {
       const file=path.join(promptDir,kind+'.md'),text=await readFile(file,'utf8'),hash=createHash('sha256').update(text).digest('hex');
       if(templates[kind]?.hash!==hash){const result=await this.drive.upload(roots.prompts,kind+'.md',file,'text/markdown','template-'+kind);templates[kind]={id:result.id,hash};}
     }
-    Object.assign(roots,{templates,templateVersion:1,queueSheetId:this.store.settings().queueSheetId});
+    Object.assign(roots,{templates,templateVersion:2,queueSheetId:this.store.settings().queueSheetId});
     const master=hourlyPrompt(roots.queueSheetId,roots),temp=path.join(this.store.dir,'work',randomUUID()+'.md');
     const hash=createHash('sha256').update(master).digest('hex');
     if(roots.masterHash!==hash){try{await writeFile(temp,master);roots.masterFileId=(await this.drive.upload(roots.prompts,'GPT-щогодини.md',temp,'text/markdown','hourly-master')).id;roots.masterHash=hash;}finally{await rm(temp,{force:true});}}

@@ -37,7 +37,7 @@ function responseFor(plan) {
     slotId:i.id,title:i.label,caption:captions[i.id],
     keywords:i.kind==='reel'?['стиль','образ','одяг','палітра','колір','акцент','поєднання','гардероб','мода','прогулянка','літо','аксесуари','силует','натхнення','вибір']:[],
     hashtags:i.kind==='story'?[]:['#стиль','#образ','#marylee','#одяг','#палітра'],
-    lines:i.kind==='reel'?(i.purpose==='sale'?['Лляний брючний костюм','Придивись до жилета','Носи комплектом або окремо','Напиши нам для замовлення']:[
+    lines:i.kind==='carousel'?['Лляний комплект','Поглянь на деталі','Носи разом або окремо','Напиши щодо наявності']:i.kind==='reel'?(i.purpose==='sale'?['Лляний брючний костюм','Придивись до жилета','Носи комплектом або окремо','Напиши нам для замовлення']:[
       'Почни зі спокійної основи, яку вже любиш носити на щоденні прогулянки містом.',
       'Тепер додай невелику виразну деталь і подивись, як змінився настрій усього комплекту.',
       'Спробуй повторити цей колір в іншому аксесуарі та порівняй обидва варіанти перед дзеркалом.',
@@ -51,7 +51,7 @@ function completion(data,overrides={}) {
   return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(data)},...overrides}]});
 }
 
-test('a two-product day requests and saves every slot, including both repost stories, in schedule order',async t=>{
+test('a one-product Facebook day requests and saves three slots in schedule order',async t=>{
   const {store,plan,config}=await fixture(t);let calls=0;const rendered=[],requests=[];
   const ai=new AI(config,store,async(url,options)=>{
     calls++;assert.equal(url,'https://api.openai.com/v1/chat/completions');
@@ -74,34 +74,34 @@ test('a two-product day requests and saves every slot, including both repost sto
   }});
   const job=store.enqueue('prepare',plan.id);await worker.tick();
   assert.equal(store.job(job.id).status,'done',store.job(job.id).message);
-  assert.deepEqual(requests,[['morning','share-morning','poll'],['carousel','detail'],['teaser','evening','share-evening']]);
-  assert.deepEqual(rendered,plan.items.map(i=>i.id));assert.equal(calls,3);
-  assert.equal(store.usage().counts.text,3);assert.equal(store.list('copy-history').length,3);
+  assert.deepEqual(requests,[['morning'],['carousel','evening']]);
+  assert.deepEqual(rendered,plan.items.map(i=>i.id));assert.equal(calls,2);
+  assert.equal(store.usage().counts.text,2);assert.equal(store.list('copy-history').length,3);
   const saved=store.get('plan',plan.id);
   assert.deepEqual(saved.productIds,plan.productIds);assert.equal(store.list('product').length,2);
   assert.ok(saved.items.every(i=>i.status==='ready'&&i.revision===1&&i.caption===captions[i.id]));
 });
 
-test('single-slot regeneration and the optional story require only the requested slots',async t=>{
+test('single-slot regeneration requests only the selected Facebook material',async t=>{
   const {store,plan,config}=await fixture(t,true);const requests=[];
   const ai=new AI(config,store,async(_url,options)=>{
     const body=JSON.parse(options.body),ids=body.response_format.json_schema.schema.properties.items.required;
     requests.push(ids);const full=responseFor(plan);
     return completion({items:Object.fromEntries(ids.map(id=>[id,full.items[id]]))});
   });
-  assert.equal((await ai.copy(plan)).length,9);assert.ok(requests[0].includes('extra'));
-  const poll=await ai.copy(plan,plan.items.filter(i=>i.id==='poll'));
-  assert.deepEqual(requests[1],['poll']);assert.deepEqual(poll.map(i=>i.slotId),['poll']);
-  assert.equal(poll[0].pollOptions.length,2);
+  assert.equal((await ai.copy(plan)).length,3);assert.deepEqual(requests[0],['morning','carousel','evening']);
+  const carousel=await ai.copy(plan,plan.items.filter(i=>i.id==='carousel'));
+  assert.deepEqual(requests[1],['carousel']);assert.deepEqual(carousel.map(i=>i.slotId),['carousel']);
+  assert.equal(carousel[0].lines.length,4);
   assert.deepEqual(await ai.copy(plan,[]),[]);assert.equal(requests.length,2);
 });
 
 test('bad or interrupted provider responses leave the existing day intact without paid retries',async t=>{
   const scenarios=[
-    ['missing story',data=>{delete data.items['share-morning'];return completion(data);},/неповний план \(2\/3/],
-    ['unexpected slot',data=>{data.items.unrequested=data.items.poll;delete data.items.poll;return completion(data);},/неповний/],
-    ['wrong slot identity',data=>{data.items.poll.slotId='share-morning';return completion(data);},/слоти/],
-    ['null material',data=>{data.items.poll=null;return completion(data);},/некоректний матеріал/],
+    ['missing material',data=>{delete data.items.morning;return completion(data);},/неповний план \(0\/1/],
+    ['unexpected slot',data=>{data.items.unrequested=data.items.morning;return completion(data);},/неповний/],
+    ['wrong slot identity',data=>{data.items.morning.slotId='carousel';return completion(data);},/слоти/],
+    ['null material',data=>{data.items.morning=null;return completion(data);},/некоректний матеріал/],
     ['token limit',data=>completion(data,{finish_reason:'length'}),/не завершена/],
     ['refusal',()=>completion(null,{message:{content:null,refusal:'Cannot comply'}}),/відмовився/],
     ['provider timeout',()=>{throw new DOMException('The operation was aborted due to timeout','TimeoutError');},/не встиг відповісти/],
@@ -143,7 +143,7 @@ test('retry preserves completed text batches, including an explicit full-text re
     assert.equal(store.list('product').length,2);
     const next=store.enqueue('prepare',plan.id,store.job(job.id).payload);await worker.tick();
     assert.equal(store.job(next.id).status,'done',store.job(next.id).message);
-    assert.deepEqual(requests,[['morning','share-morning','poll'],['carousel','detail'],['carousel','detail'],['teaser','evening','share-evening']]);
+    assert.deepEqual(requests,[['morning'],['carousel','evening'],['carousel','evening']]);
     assert.ok(store.get('plan',plan.id).items.every(i=>i.status==='ready'&&i.caption===captions[i.id]&&i.revision===1));
     assert.equal(store.list('copy-history').length,3);
   });

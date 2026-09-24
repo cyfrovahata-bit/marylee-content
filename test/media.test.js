@@ -19,17 +19,16 @@ test('full day renders real MP4/JPEG/SRT/ZIP, preserves portrait dimensions and 
   const s=new Store(dir);t.after(async()=>{s.close();if(!preview)await rm(dir,{recursive:true,force:true});});
   s.setSettings({autoPrepare:false,voiceEnabled:true});
   const A=s.put('product',cleanProduct({name:'Тестова сукня · приклад',sku:'DEMO-A',price:1290,sizes:'S, M, L',material:'Льон',colors:'Молочний, синій',ready:true}));
-  const B=s.put('product',cleanProduct({name:'Тестовий жакет · приклад',sku:'DEMO-B',price:1590,sizes:'S, M',ready:true}));
   const input=path.join(dir,'work','source.png'),clip=path.join(dir,'work','motion.mp4'),voice=path.join(dir,'work','test-voice.mp3');
   await run('ffmpeg',['-y','-f','lavfi','-i','color=c=0xd5c3ad:s=1536x1024','-frames:v','1','-threads','1',input]);
   await run('ffmpeg',['-y','-f','lavfi','-i','testsrc2=s=360x640:r=25:d=1','-c:v','libx264','-threads','1','-pix_fmt','yuv420p',clip]);
   await run('ffmpeg',['-y','-f','lavfi','-i','sine=frequency=220:duration=0.6','-c:a','libmp3lame',voice]);
-  await saveAsset(s,input,{name:'photo.png',productId:A.id});await saveAsset(s,clip,{name:'video.mp4',productId:B.id});
-  const plan=createPlan(s,'2026-09-10',[A.id,B.id]);
+  await saveAsset(s,input,{name:'photo.png',productId:A.id});await saveAsset(s,clip,{name:'video.mp4',productId:A.id});
+  const plan=createPlan(s,'2026-09-10',[A.id]);
   // Preserve the existing manual-upload route for older saved plans.
   for(const i of plan.items)i.externalImages=false;
-  const titles=['Один акцент — інший настрій','Збережи кольорову підказку','Яка палітра ближча?','Знайомство з сукнею','Розглянь деталь','Вечірня примірка ідей','Жакет у русі','Поділись вечірнім образом'];
-  for(const [n,i] of plan.items.entries()) {i.title=titles[n];i.caption='Тестовий матеріал для перевірки застосунку. Не є товарною публікацією.';i.lines=['Спокійна основа.','Додай кольоровий акцент.'];i.hashtags=i.kind==='story'?[]:['#стиль','#marylee','#образ','#одяг','#україна'];i.pollQuestion='Яка палітра ближча?';i.pollOptions=['Спокійна','Контрастна'];}
+  const titles=['Актуальна стильова підказка','Знайомство з сукнею','Сукня у русі'];
+  for(const [n,i] of plan.items.entries()) {i.title=titles[n];i.caption='Тестовий матеріал для перевірки застосунку. Не є товарною публікацією.';i.lines=['Спокійна основа.','Додай кольоровий акцент.','Поглянь на деталь.','Обери свій варіант.'];i.hashtags=['#стиль','#marylee','#образ','#одяг','#україна'];i.pollQuestion='';i.pollOptions=[];}
   plan.items[0].imagePrompt='Two full-length outfits side by side, left with flats, right with boots.';s.put('plan',plan);
   let images=0,voices=0,failVoice=true;
   const ai={config:{},image:async()=>{images++;throw new Error('Image API must never run');},voice:async()=>{voices++;if(failVoice){failVoice=false;throw new Error('Voice interrupted after upload');}return voice;}};
@@ -38,34 +37,33 @@ test('full day renders real MP4/JPEG/SRT/ZIP, preserves portrait dimensions and 
   const base='http://127.0.0.1:'+app.server.address().port,worker=app.worker;
   const first=s.enqueue('prepare',plan.id);await worker.tick();
   assert.equal(s.job(first.id).status,'done');assert.equal(images,0);assert.equal(voices,0);
-  const waiting=s.get('plan',plan.id);assert.equal(waiting.items.filter(i=>i.status==='ready').length,5);
-  for(const id of ['morning','share-morning','poll'])assert.equal(waiting.items.find(i=>i.id===id).status,'awaiting-image');
+  const waiting=s.get('plan',plan.id);assert.equal(waiting.items.filter(i=>i.status==='ready').length,2);
+  assert.equal(waiting.items.find(i=>i.id==='morning').status,'awaiting-image');
   const state=await (await fetch(base+'/api/state?date='+plan.id)).json();
   assert.equal(state.setup.imageGeneration,false);assert.match(state.plan.items[0].drawingPrompt,/EXACTLY TWO/);
-  const productPost=state.plan.items.find(i=>i.id==='carousel');assert.match(productPost.fullCaption,/Матеріал: Льон/);assert.match(productPost.fullCaption,/Кольори: Молочний, синій/);assert.match(productPost.goal,/характеристики/);
+  const productPost=state.plan.items.find(i=>i.id==='carousel');assert.match(productPost.fullCaption,/Матеріал: Льон/);assert.match(productPost.fullCaption,/Кольори: Молочний, синій/);assert.match(productPost.goal,/повноекранній/);
   assert.equal((await fetch(base+'/api/image',{method:'POST',headers:{'X-Marylee':'1'}})).status,410);
   const legacy=s.enqueue('image','legacy',{prompt:'Never draw this'});await worker.tick();assert.equal(s.job(legacy.id).status,'error');assert.equal(images,0);
-  const bytes=await readFile(mediaPath(s,s.list('asset').find(a=>a.productId===A.id).file)),uploadPath=base+'/api/plans/'+plan.id+'/items/';
+  const bytes=await readFile(mediaPath(s,s.list('asset').find(a=>a.productId===A.id&&a.kind==='image').file)),uploadPath=base+'/api/plans/'+plan.id+'/items/';
   assert.equal((await fetch(uploadPath+'evening/illustration?name=looks.png',{method:'POST',headers:{'X-Marylee':'1'},body:bytes})).status,400);
   const response=await fetch(uploadPath+'morning/illustration?name=looks.png',{method:'POST',headers:{'X-Marylee':'1'},body:bytes});
   const uploaded=await response.json();assert.equal(response.status,201,JSON.stringify(uploaded));
   assert.equal(uploaded.asset.layout,'diptych');assert.equal(s.get('plan',plan.id).items[0].illustrationId,uploaded.asset.id);
   await worker.tick();assert.equal(s.job(uploaded.job.id).status,'error');assert.equal(images,0);
   const retry=s.enqueue('prepare',plan.id);await worker.tick();assert.equal(s.job(retry.id).status,'done',s.job(retry.id).message);
-  assert.equal(images,0,'upload and retry never call the image provider');assert.equal(voices,3,'only two morning lines plus the failed call; no sales voice calls');
+  assert.equal(images,0,'upload and retry never call the image provider');assert.equal(voices,5,'only four morning lines plus the failed call; no sales voice calls');
   assert.equal(s.get('plan',plan.id).items[0].illustrationId,uploaded.asset.id,'voice retry preserves the uploaded illustration');
   const ready=s.get('plan',plan.id);assert.ok(ready.items.every(i=>i.status==='ready'));
   for(const id of ['morning','evening']) {
     const reel=ready.items.find(i=>i.id===id),media=s.get('asset',reel.outputIds[0]);const info=await probe(mediaPath(s,media.file));
     const v=info.streams.find(x=>x.codec_type==='video'),audio=info.streams.find(x=>x.codec_type==='audio');const firstFrame=await run('ffmpeg',['-i',mediaPath(s,media.file),'-frames:v','1','-vf','signalstats,metadata=print','-f','null','-']);const brightness=Number(firstFrame.stderr.match(/lavfi.signalstats.YAVG=([\d.]+)/)[1]);assert.ok(brightness>25,'first frame must show content, not a black fade');assert.equal(v.width,1080);assert.equal(v.height,1920);assert.equal(v.pix_fmt,'yuv420p');assert.equal(audio.codec_name,'aac');assert.equal(Number(audio.sample_rate),48000);assert.equal(audio.channels,2);assert.ok(Math.abs(Number(info.format.duration)-reel.duration)<.2);
   }
-  assert.deepEqual(ready.items.find(i=>i.id==='share-evening').outputIds,ready.items.find(i=>i.id==='evening').outputIds);
-  const zip=await exportDay(s,plan.id);const listing=(await run('unzip',['-Z1',zip])).stdout;assert.match(listing,/09-00-morning\/1.mp4|09-00-morning\/01.mp4/);assert.match(listing,/12-00-poll\/instructions.txt/);assert.match(listing,/START-HERE.txt/);
-  const jpg=s.get('asset',ready.items.find(i=>i.id==='carousel').outputIds[0]);const imageInfo=await probe(mediaPath(s,jpg.file));assert.equal(imageInfo.streams[0].width,1080);assert.equal(imageInfo.streams[0].height,1350);
+  const zip=await exportDay(s,plan.id);const listing=(await run('unzip',['-Z1',zip])).stdout;assert.match(listing,/09-00-morning\/1.mp4|09-00-morning\/01.mp4/);assert.match(listing,/14-00-carousel\/instructions.txt/);assert.match(listing,/START-HERE.txt/);
+  const jpg=s.get('asset',ready.items.find(i=>i.id==='carousel').outputIds[0]);const imageInfo=await probe(mediaPath(s,jpg.file));assert.equal(imageInfo.streams[0].width,1080);assert.equal(imageInfo.streams[0].height,1920);
   const productPhoto=s.list('asset').find(a=>a.productId===A.id);
   const photoReel={...ready.items.find(i=>i.id==='evening'),productId:A.id,selectedAssetIds:[productPhoto.id],notes:[]};
   const work=path.join(dir,'work','photo-reel');await mkdir(work,{recursive:true});
-  await renderReel(s,ai,ready,photoReel,work);assert.equal(photoReel.voiceUsed,false);assert.match(photoReel.notes.join(' '),/Без озвучки/);assert.equal(voices,3);const silence=await run('ffmpeg',['-i',mediaPath(s,s.get('asset',photoReel.outputIds[0]).file),'-vn','-af','volumedetect','-f','null','-']);const maximum=Number(silence.stderr.match(/max_volume: (-?[\d.]+) dB/)[1]);assert.ok(maximum<=-80,`sales audio must be silent: ${maximum}dB`);
+  await renderReel(s,ai,ready,photoReel,work);assert.equal(photoReel.voiceUsed,false);assert.match(photoReel.notes.join(' '),/Без озвучки/);assert.equal(voices,5);const silence=await run('ffmpeg',['-i',mediaPath(s,s.get('asset',photoReel.outputIds[0]).file),'-vn','-af','volumedetect','-f','null','-']);const maximum=Number(silence.stderr.match(/max_volume: (-?[\d.]+) dB/)[1]);assert.ok(maximum<=-80,`sales audio must be silent: ${maximum}dB`);
   const editorialInput=path.join(dir,'work','editorial.png');await copyFile(mediaPath(s,productPhoto.file),editorialInput);
   const editorial=await saveAsset(s,editorialInput,{name:'editorial.png',source:'ai'});
   const educational={...ready.items.find(i=>i.id==='morning'),selectedAssetIds:[editorial.id],notes:[]};

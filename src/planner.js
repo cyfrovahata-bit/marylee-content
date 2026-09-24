@@ -2,31 +2,14 @@ import { productAssets } from './catalog.js';
 import { validDate, shiftDate, kyivToday } from './kyiv.js';
 
 export const SCHEDULE=[
-  {id:'morning',time:'09:00',kind:'reel',purpose:'useful',label:'Корисний Reel'},
-  {id:'share-morning',time:'09:00',immediate:true,kind:'story',purpose:'repost',dependsOn:'morning',label:'Одразу поширити Reel у сторіз'},
-  {id:'poll',time:'12:00',kind:'story',purpose:'poll',label:'Опитування'},
-  {id:'carousel',time:'14:00',kind:'carousel',purpose:'product',role:'A',label:'Товар A · карусель'},
-  {id:'detail',time:'15:30',kind:'story',purpose:'detail',role:'A',label:'Деталь товару A'},
-  {id:'teaser',time:'18:30',kind:'story',purpose:'teaser',role:'B',label:'Знайомство з товаром B'},
-  {id:'evening',time:'19:30',kind:'reel',purpose:'sale',role:'B',label:'Товар B · Reel'},
-  {id:'share-evening',time:'19:30',immediate:true,kind:'story',purpose:'repost',role:'B',dependsOn:'evening',label:'Одразу поширити товарний Reel'},
-  {id:'extra',time:'21:30',kind:'story',purpose:'extra',role:'B',optional:true,label:'Додаткова сторіз'},
+  {id:'morning',time:'09:00',kind:'reel',purpose:'useful',label:'Актуальний Reel'},
+  {id:'carousel',time:'14:00',kind:'carousel',purpose:'product',role:'A',label:'Товар дня · карусель'},
+  {id:'evening',time:'19:30',kind:'reel',purpose:'sale',role:'A',label:'Товар дня · Reel'},
 ];
 export const TOPICS=[
-  {id:'color-accent',title:'Один акцент: як зібрати кольори в образі',mode:'palette',brief:'Покажи три поступові кроки: спокійна основа, другий близький колір, один контрастний аксесуар. Це варіант стилізації, а не обов’язкове правило.'},
-  {id:'repeat-color',title:'Повтори один колір у двох деталях',mode:'palette',brief:'Покажи як один і той самий акцент у взутті та сумці пов’язує образ. Порівняй два варіанти без оцінок фігури.'},
-  {id:'length',title:'Змінюємо довжину верхнього шару',mode:'proportion',brief:'На умовній схемі порівняй коротший і довший верх із тим самим низом. Поясни як змінюється розташування візуальної межі. Жодних універсальних обіцянок стрункості.'},
-  {id:'three-tones',title:'Три відтінки одного кольору',mode:'palette',brief:'Збери умовний комплект із світлого, середнього та темного відтінків. Запропонуй поміняти їх місцями. Це експеримент зі стилем.'},
-  {id:'layering',title:'Два шари й одна відкрита лінія',mode:'proportion',brief:'Покажи на схемі базовий комплект і розстебнутий верхній шар. Поясни появу вертикальної лінії без обіцянок зміни фігури.'},
-  {id:'warm-cool',title:'Бежевий із синім: спробуй цю пару',mode:'palette',brief:'Поступово поєднай бежеву основу з синім акцентом, потім поміняй домінантний колір. Не роби тверджень про колір шкіри.'},
-  {id:'small-accent',title:'Акцент може бути маленьким',mode:'palette',brief:'Порівняй нейтральний комплект із невеликою кольоровою деталлю та з великим кольоровим шаром. Запитай, який настрій ближчий.'},
-  {id:'waist-line',title:'Де проходить межа між верхом і низом?',mode:'proportion',brief:'Змісти умовну межу верху й низу на схемі. Поясни, що сприйняття пропорцій змінюється, але немає єдиного правильного варіанту.'},
-  {id:'olive-cream',title:'Оливковий, молочний і темний акцент',mode:'palette',brief:'Збери варіант палітри оливковий, молочний, графітовий. Порівняй, який із них зробити основою.'},
-  {id:'contrast',title:'М’який контраст чи виразний?',mode:'palette',brief:'Порівняй близькі відтінки та світло-темну пару на умовній схемі. Запропонуй обрати за настроєм, без обіцянок універсального ефекту.'},
-  {id:'outer-layer',title:'Один комплект, два верхні шари',mode:'proportion',brief:'На схемі додай до умовного комплекту короткий і довгий зовнішні шари. Запропонуй користувачеві порівняти силуети.'},
-  {id:'burgundy',title:'Бордовий акцент у спокійній палітрі',mode:'palette',brief:'Поєднай молочний, графітовий та бордовий як приклад. Покажи акцент на двох різних місцях.'},
-  {id:'blue-brown',title:'Синій із коричневим: два варіанти',mode:'palette',brief:'Поступово склади умовну палітру синій, коричневий, світлий нейтральний. Міняй великі та малі кольорові площини.'},
-  {id:'balance',title:'Одна об’ємна річ у комплекті',mode:'proportion',brief:'Порівняй на схемі широкий верх із прямим низом та прямий верх із широким низом. Жодного оцінювання тіл чи універсальних правил.'},
+  {id:'fashion-news',title:'Актуальна новина моди',mode:'current',brief:'Знайди свіжу новину або помітний актуальний напрям у моді. Перевір дату та щонайменше два надійні джерела. Поясни українською практичне значення для звичайного гардероба.'},
+  {id:'clothing-tip',title:'Актуальна порада про одяг',mode:'advice',brief:'Обери одну сезонно доречну практичну пораду про вибір, догляд або носіння одягу. Дай конкретний приклад без довгої розповіді.'},
+  {id:'style-tip',title:'Актуальна порада зі стилю',mode:'style',brief:'Обери один сучасний стилістичний прийом і покажи його на конкретному образі. Без оцінювання фігури та без універсальних обіцянок.'},
 ];
 export function lastUse(store,id,beforeDate) {
   return store.list('plan').filter(p=>p.id<beforeDate && p.items.some(i=>i.productId===id)).map(p=>p.id).sort().at(-1)||null;
@@ -42,15 +25,15 @@ export function createPlan(store,date,productIds=[]) {
     if(Array.isArray(productIds)&&productIds.length&&JSON.stringify(productIds)!==JSON.stringify(existing.productIds))throw new Error('Для цієї дати вже вибрані інші товари. Увімкни «Замінити чернетку дня» або обери іншу дату.');
     return existing;
   }
-  if(!Array.isArray(productIds)||productIds.length>2||new Set(productIds).size!==productIds.length) throw new Error('Вибери до двох різних товарів');
-  const products=productIds.length?productIds.map(id=>store.get('product',id)):eligibleProducts(store,date).slice(0,2);
+  if(!Array.isArray(productIds)||productIds.length>1||new Set(productIds).size!==productIds.length) throw new Error('Вибери один товар на день');
+  const products=productIds.length?productIds.map(id=>store.get('product',id)):eligibleProducts(store,date).slice(0,1);
   if(products.some(p=>!p||!p.active||!p.ready||!productAssets(store,p,{originalOnly:true}).length)) throw new Error('Заверши завантаження товару й додай оригінальне фото або відео');
   if(!products.length) throw new Error('Немає готових товарів без недавнього повтору. Додай новий або вибери товар вручну.');
   const used=store.list('plan').filter(p=>p.id<date).sort((a,b)=>b.id.localeCompare(a.id)).slice(0,13).map(p=>p.topic.id);
   const topic=TOPICS.find(t=>!used.includes(t.id))||TOPICS[0];
-  const A=products[0], B=products.at(-1);
-  const items=SCHEDULE.filter(s=>!s.optional||store.settings().includeOptionalStory).map(s=>{
-    const product=s.role==='A'?A:s.role==='B'?B:null;
+  const A=products[0];
+  const items=SCHEDULE.map(s=>{
+    const product=s.role==='A'?A:null;
     const assets=product?productAssets(store,product,{originalOnly:true}):[];
     const isUsefulPhoto=s.role==='A'&&!A;
     return {...s,externalImages:['useful','poll'].includes(s.purpose),productId:product?.id||null,label:isUsefulPhoto?(s.kind==='carousel'?'Корисний фотопост':'Продовження поради'):s.label,
@@ -72,7 +55,7 @@ export function createBatch(store,start=shiftDate(kyivToday(),1)) {
       while(store.get('plan',date))date=shiftDate(date,1);
       const eligible=eligibleProducts(store,date).filter(p=>candidates.some(c=>c.id===p.id));
       if(!eligible.length){date=shiftDate(date,1);continue;}
-      const chosen=eligible.slice(0,2).map(p=>p.id);
+      const chosen=eligible.slice(0,1).map(p=>p.id);
       const plan=createPlan(store,date,chosen);plans.push(plan);
       for(const id of chosen)candidates.splice(candidates.findIndex(p=>p.id===id),1);
       store.enqueue('prepare',date,{mode:'render'});date=shiftDate(date,1);
@@ -82,12 +65,12 @@ export function createBatch(store,start=shiftDate(kyivToday(),1)) {
 }
 export function itemGoal(item) {
   const goals={
-    useful:'Зацікавити порадою про стиль: два образи й одна наочна відмінність. Без продажу товару.',
+    useful:'Дати актуальну новину моди або коротку практичну пораду про одяг чи стиль. Без продажу товару.',
     poll:'Дізнатися, який варіант ближчий аудиторії. Окремий фон за темою дня; справжню наліпку опитування додаєш під час публікації.',
-    product:'Дати змогу роздивитися товар A й прочитати характеристики: ціну, артикул, розміри, кольори та матеріал у повному підписі.',
+    product:'Показати товар дня у вертикальній повноекранній каруселі з короткими підказками на кожному фото.',
     detail:'Показати ближче одну справжню деталь товару A: застібку, крій або оздоблення.',
     teaser:'Познайомити з товаром B перед вечірнім оглядом, показавши одну його особливість.',
-    sale:'Коротко показати товар B у відео й запропонувати уточнити наявність. Без голосу; ціна, артикул і розміри — у підписі.',
+    sale:'Коротко показати той самий товар дня у вечірньому Reel. Без голосу; підказки є прямо у відео.',
     extra:'Необов’язкове нагадування: запропонувати уточнити розмір або наявність товару B.',
     'useful-photo':'Продовжити пораду про стиль у фотоформаті, коли на день вибрано лише один товар.',
   };

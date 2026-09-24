@@ -49,9 +49,7 @@ export async function card(store,{asset=null,title='',detail='',height=H,name='s
   await writeFile(sub,ass);
   const args=['-y','-filter_threads','1','-threads','1'];
   if(asset)args.push('-i',mediaPath(store,asset.file));else args.push('-f','lavfi','-i',`color=c=0xf4f0e8:s=${W}x${height}:d=1`);
-  const imageHeight=height===H?(poll?1450:height-590):height-430;
-  const imageTop=height===H?(poll?190:170):80;
-  const filter=asset?`${detailCrop(focus)}scale=${W}:${imageHeight}:force_original_aspect_ratio=decrease,pad=${W}:${height}:(ow-iw)/2:${imageTop}:color=0xf4f0e8,setsar=1`:'null';
+  const filter=asset?`${detailCrop(focus)}scale=${W}:${height}:force_original_aspect_ratio=increase,crop=${W}:${height},setsar=1`:'null';
   args.push('-vf',`${filter},ass=${sub}`,'-frames:v','1','-q:v','2','-threads','1',out);
   await run('ffmpeg',args);return registerOutput(store,out,{kind:'image',name});
 }
@@ -76,7 +74,7 @@ export async function renderReel(store,ai,plan,item,dir) {
     if(asset.kind==='image')args.push('-loop','1');else args.push('-stream_loop','-1');
     args.push('-i',mediaPath(store,asset.file));
     const crop=asset.layout==='diptych'&&!item.externalImages&&(n===1||n===2)?`crop=iw/2:ih:${n===1?0:'iw/2'}:0,`:'';
-    let visual=`${crop}scale=${W}:1350:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:310:color=0xf4f0e8,setsar=1`;
+    let visual=`${crop}scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1`;
     if(asset.kind==='image')visual+=`,zoompan=z='1.01+0.025*min(on/${Math.max(1,Math.round(duration*FPS)-1)},1)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=${W}x${H}:fps=${FPS}`;
     else visual+=`,fps=${FPS}`;
     const videoFilter=`[0:v]${visual},ass=${sub}${n?',fade=t=in:st=0:d=0.12':''}[out]`;
@@ -93,7 +91,7 @@ export async function renderReel(store,ai,plan,item,dir) {
   const subtitle=await registerOutput(store,subtitlePath,{kind:'document',name:`${item.time.replace(':','-')}-subtitles.srt`});
   const cover=await card(store,{asset:selected[0],title:item.title,detail:product&&product.price!==null?`${product.price} грн`:'Два образи · одна зміна',name:'cover.jpg'},dir);
   item.voiceUsed=withVoice;item.duration=offset;item.coverId=cover.id;item.mediaAssetIds=selected.map(a=>a.id);
-  item.notes=sale?['Без озвучки. За бажанням додай музику в Instagram або Facebook перед публікацією.']:['Приклади образів створено для поради про стиль.'];
+  item.notes=sale?['Без озвучки. За бажанням додай музику у Facebook перед публікацією.']:['Приклади образів створено для актуального ранкового Reel.'];
   if(!sale&&!withVoice)item.notes.push('Озвучку порад вимкнено в налаштуваннях.');
   item.outputIds=[video.id,subtitle.id];return item;
 }
@@ -107,31 +105,28 @@ export async function renderCarousel(store,plan,item,dir,provided=null) {
   if(!photos.length&&available.some(a=>a.kind==='video'))photos=available.filter(a=>a.kind==='video').slice(0,1);
   if(!photos.length)throw new Error('Додай фото для каруселі або спочатку підготуй ранкову ілюстрацію');
   const outputs=[];
-  if(product)outputs.push((await card(store,{asset:photos[0],height:1350,title:item.title,detail:product.price!==null?`${product.price} грн${product.sku?' · Арт. '+product.sku:''}`:'',name:'01-cover.jpg'},dir)).id);
+  if(product)outputs.push((await card(store,{asset:photos[0],height:H,title:item.title,detail:product.price!==null?`${product.price} грн${product.sku?' · Арт. '+product.sku:''}`:'',name:'01-cover.jpg'},dir)).id);
   for(const [n,asset] of photos.slice(0,6).entries()) {
-    const out=path.join(dir,`photo-${n}.jpg`);
-    await run('ffmpeg',['-y','-filter_threads','1','-threads','1','-i',mediaPath(store,asset.file),'-frames:v','1','-vf','scale=1080:1350:force_original_aspect_ratio=decrease,pad=1080:1350:(ow-iw)/2:(oh-ih)/2:color=0xf4f0e8','-q:v','2','-threads','1',out]);
-    outputs.push((await registerOutput(store,out,{kind:'image',name:`${item.time.replace(':','-')}-${n+1}.jpg`})).id);
+    const text=item.lines[n%item.lines.length]||item.title;
+    outputs.push((await card(store,{asset,height:H,title:text,name:`${item.time.replace(':','-')}-${n+1}.jpg`},dir)).id);
   }
   if(product){
     const lines=factBlock(product).split('\n').filter(Boolean).flatMap(field=>[...wrap(field,38).split('\\N').flatMap(line=>line.match(/.{1,38}/gu)||[]),'']);
     for(let page=0;page*18<lines.length;page++){
       const out=path.join(dir,`specifications-${page}.jpg`),sub=path.join(dir,`specifications-${page}.ass`);
-      let ass=assHeader(1350)+event(0,1,'Brand','MARYLEE SHOP');
-      // Characteristics slide: compact information block with a product image rather than a blank text sheet.
+      let ass=assHeader(H)+event(0,1,'Brand','MARYLEE SHOP');
       const source=photos[Math.min(page+1,photos.length-1)];
-      if(source)ass+=event(0,1,'Brand','{\\an7\\pos(820,210)\\fs24}MARYLEE SHOP');
-      for(const [n,line] of lines.slice(page*14,(page+1)*14).entries())if(line)ass+=event(0,1,'Title',`{\\an7\\pos(70,${260+n*68})\\fs34}${line}`);
+      for(const [n,line] of lines.slice(page*14,(page+1)*14).entries())if(line)ass+=event(0,1,'Caption',`{\\an7\\pos(70,${650+n*72})\\fs34}${line}`);
       await writeFile(sub,ass);
       const charArgs=['-y','-filter_threads','1','-threads','1'];
-      if(source)charArgs.push('-i',mediaPath(store,source.file));else charArgs.push('-f','lavfi','-i','color=c=0xf4f0e8:s=1080x1350:d=1');
-      const charFilter=source?`scale=430:610:force_original_aspect_ratio=decrease,pad=430:610:(ow-iw)/2:(oh-ih)/2:color=0xf4f0e8[img];color=c=0xf4f0e8:s=1080x1350:d=1[bg];[bg][img]overlay=570:650,ass=${sub}`:`ass=${sub}`;
-      charArgs.push('-filter_complex',charFilter,'-frames:v','1','-q:v','2','-threads','1',out);
+      if(source)charArgs.push('-i',mediaPath(store,source.file));else charArgs.push('-f','lavfi','-i',`color=c=0xf4f0e8:s=${W}x${H}:d=1`);
+      const charFilter=source?`scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},ass=${sub}`:`ass=${sub}`;
+      charArgs.push('-vf',charFilter,'-frames:v','1','-q:v','2','-threads','1',out);
       await run('ffmpeg',charArgs);
       outputs.push((await registerOutput(store,out,{kind:'image',name:`99-characteristics-${page+1}.jpg`})).id);
     }
   }
-  item.notes=[`Відібрано ${photos.length} кадрів із ${available.length} доступних.`, 'Обкладинка та слайд характеристик оформлені компактно, з більшим акцентом на фото товару.'];
+  item.notes=[`Відібрано ${photos.length} кадрів із ${available.length} доступних.`, 'Усі фото підготовлено вертикально 1080×1920 без полів; підказки накладено безпосередньо на кадри.'];
   item.mediaAssetIds=photos.map(a=>a.id);item.outputIds=outputs;item.coverId=outputs[0];return item;
 }
 export async function renderItem(store,ai,plan,item) {
