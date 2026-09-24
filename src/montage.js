@@ -16,7 +16,7 @@ function wrap(text,width=28) {
   const lines=[''];for(const word of clean(text).split(/\s+/)) {if(lines.at(-1).length+word.length>width&&lines.at(-1))lines.push('');lines[lines.length-1]+=(lines.at(-1)?' ':'')+word;}
   return lines.join('\\N');
 }
-function assHeader(height=H) {return `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${height}\nWrapStyle: 2\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Caption,${FONT},54,&H00FFFFFF,&H00FFFFFF,&H002C422E,&H002C422E,0,0,0,0,100,100,0,0,3,12,0,2,85,85,310,1\nStyle: Title,${FONT},60,&H0024382B,&H0024382B,&H00F4F0E8,&H00F4F0E8,-1,0,0,0,100,100,0,0,1,0,0,8,80,80,170,1\nStyle: Brand,${FONT},28,&H0024382B,&H0024382B,&H00F4F0E8,&H00F4F0E8,0,0,0,0,100,100,3,0,1,0,0,8,50,50,90,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;}
+function assHeader(height=H) {return `[Script Info]\nScriptType: v4.00+\nPlayResX: ${W}\nPlayResY: ${height}\nWrapStyle: 2\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Caption,${FONT},54,&H00FFFFFF,&H00FFFFFF,&H002C422E,&H002C422E,0,0,0,0,100,100,0,0,3,12,0,2,85,85,310,1\nStyle: Title,${FONT},60,&H0024382B,&H0024382B,&H00F4F0E8,&H00F4F0E8,-1,0,0,0,100,100,0,0,1,0,0,8,80,80,170,1\nStyle: CardText,${FONT},58,&H0024382B,&H0024382B,&H18F4F0E8,&H18F4F0E8,-1,0,0,0,100,100,1.2,0,3,24,0,8,100,100,170,1\nStyle: CardDetail,${FONT},38,&H00FFFFFF,&H00FFFFFF,&H1824382B,&H1824382B,-1,0,0,0,100,100,1,0,3,18,0,8,120,120,170,1\nStyle: Brand,${FONT},28,&H0024382B,&H0024382B,&H00F4F0E8,&H00F4F0E8,0,0,0,0,100,100,3,0,1,0,0,8,50,50,90,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n`;}
 const event=(start,end,style,text)=>`Dialogue: 0,${stamp(start)},${stamp(end)},${style},,0,0,0,,${text}\n`;
 function captionAss(text,duration,{title='',sale=false,scene=0,aiIllustration=false}={}) {
   let ass=assHeader()+event(0,duration,'Brand',aiIllustration?'MARYLEE / ІЛЮСТРАЦІЯ ШІ':'MARYLEE SHOP');
@@ -40,8 +40,8 @@ export async function card(store,{asset=null,title='',detail='',height=H,name='s
   const titleY=height===H?(poll?150:1530):(poll?95:1050);
   const detailY=height===H?(poll?1740:1695):1200;
   let ass=assHeader(height)+event(0,1,'Brand',asset?.source==='ai'?'MARYLEE / ІЛЮСТРАЦІЯ ШІ':'MARYLEE SHOP');
-  if(title)ass+=event(0,1,'Title',`{\\an8\\pos(540,${titleY})\\fs${poll?(title.length>42?48:58):(title.length>46?50:60)}}${wrap(title,poll?34:28)}`);
-  if(detail)ass+=event(0,1,'Title',`{\\an8\\pos(540,${detailY})\\fs38}${wrap(detail,42)}`);
+  if(title)ass+=event(0,1,poll?'Title':'CardText',`{\\an8\\pos(540,${titleY})\\fs${poll?(title.length>42?48:58):(title.length>46?50:58)}}${wrap(title,poll?34:28)}`);
+  if(detail)ass+=event(0,1,poll?'Title':'CardDetail',`{\\an8\\pos(540,${detailY})\\fs38}${wrap(detail,42)}`);
   if(poll) {
     ass+=event(0,1,'Brand','{\\an8\\pos(270,1600)\\fs30}ЛІВИЙ ОБРАЗ');
     ass+=event(0,1,'Brand','{\\an8\\pos(810,1600)\\fs30}ПРАВИЙ ОБРАЗ');

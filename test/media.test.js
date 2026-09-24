@@ -60,7 +60,7 @@ test('full day renders real MP4/JPEG/SRT/ZIP, preserves portrait dimensions and 
   }
   const zip=await exportDay(s,plan.id);const listing=(await run('unzip',['-Z1',zip])).stdout;assert.match(listing,/09-00-morning\/1.mp4|09-00-morning\/01.mp4/);assert.match(listing,/14-00-carousel\/instructions.txt/);assert.match(listing,/START-HERE.txt/);
   const jpg=s.get('asset',ready.items.find(i=>i.id==='carousel').outputIds[0]);const imageInfo=await probe(mediaPath(s,jpg.file));assert.equal(imageInfo.streams[0].width,1080);assert.equal(imageInfo.streams[0].height,1920);
-  const productPhoto=s.list('asset').find(a=>a.productId===A.id);
+  const productPhoto=s.list('asset').find(a=>a.productId===A.id&&a.kind==='image');
   const photoReel={...ready.items.find(i=>i.id==='evening'),productId:A.id,selectedAssetIds:[productPhoto.id],notes:[]};
   const work=path.join(dir,'work','photo-reel');await mkdir(work,{recursive:true});
   await renderReel(s,ai,ready,photoReel,work);assert.equal(photoReel.voiceUsed,false);assert.match(photoReel.notes.join(' '),/Без озвучки/);assert.equal(voices,5);const silence=await run('ffmpeg',['-i',mediaPath(s,s.get('asset',photoReel.outputIds[0]).file),'-vn','-af','volumedetect','-f','null','-']);const maximum=Number(silence.stderr.match(/max_volume: (-?[\d.]+) dB/)[1]);assert.ok(maximum<=-80,`sales audio must be silent: ${maximum}dB`);
