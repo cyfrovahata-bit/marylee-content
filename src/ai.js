@@ -166,7 +166,7 @@ export class AI {
     const eleven=c.voiceProvider==='elevenlabs';
     const res=await this.request(eleven?`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(c.elevenVoice)}?output_format=mp3_44100_128`:'https://api.openai.com/v1/audio/speech',{
       method:'POST',headers:eleven?{'xi-api-key':c.elevenKey,'Content-Type':'application/json'}:{Authorization:`Bearer ${c.openaiKey}`,'Content-Type':'application/json'},
-      body:JSON.stringify(eleven?{text:spoken,model_id:c.elevenModel,language_code:'uk'}:{model:'gpt-4o-mini-tts',voice:c.openaiVoice,input:spoken,instructions:VOICE_STYLE,speed:1.06,response_format:'mp3'}),
+      body:JSON.stringify(eleven?{text:spoken,model_id:c.elevenModel,language_code:'uk'}:{model:'gpt-4o-mini-tts',voice:c.openaiVoice,input:spoken,instructions:VOICE_STYLE,speed:0.98,response_format:'mp3'}),
     });
     const bytes=Buffer.from(await res.arrayBuffer());
     if(bytes.length<100) throw new Error('Сервіс повернув порожню озвучку');

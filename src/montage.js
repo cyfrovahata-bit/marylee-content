@@ -8,8 +8,8 @@ import { salesReel, usesVoice } from './content.js';
 import { editorialAssets, pendingMedia } from './editorial.js';
 import { factBlock } from './ai.js';
 
-const W=1080,H=1920,FPS=25,FONT='DejaVu Sans';
-const codec=['-c:v','libx264','-preset','veryfast','-crf','22','-pix_fmt','yuv420p','-r',String(FPS),'-g','50','-keyint_min','50','-sc_threshold','0','-threads','2'];
+const W=1080,H=1920,FPS=30,ZOOM_W=1440,ZOOM_H=2560,FONT='DejaVu Sans';
+const codec=['-c:v','libx264','-preset','veryfast','-crf','22','-pix_fmt','yuv420p','-r',String(FPS),'-g','60','-keyint_min','60','-sc_threshold','0','-threads','2'];
 const clean=s=>String(s).replace(/[{}\\]/g,'').replace(/[\r\n]+/g,' ').trim();
 function stamp(seconds) {const cs=Math.round(seconds*100),s=Math.floor(cs/100);return `${Math.floor(s/3600)}:${String(Math.floor(s/60)%60).padStart(2,'0')}:${String(s%60).padStart(2,'0')}.${String(cs%100).padStart(2,'0')}`;}
 function wrap(text,width=28) {
@@ -74,8 +74,11 @@ export async function renderReel(store,ai,plan,item,dir) {
     if(asset.kind==='image')args.push('-loop','1');else args.push('-stream_loop','-1');
     args.push('-i',mediaPath(store,asset.file));
     const crop=asset.layout==='diptych'&&!item.externalImages&&(n===1||n===2)?`crop=iw/2:ih:${n===1?0:'iw/2'}:0,`:'';
-    let visual=`${crop}scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1`;
-    if(asset.kind==='image')visual+=`,zoompan=z='1.01+0.025*min(on/${Math.max(1,Math.round(duration*FPS)-1)},1)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=${W}x${H}:fps=${FPS}`;
+    const frames=Math.max(1,Math.round(duration*FPS)-1);
+    let visual=asset.kind==='image'
+      ?`${crop}scale=${ZOOM_W}:${ZOOM_H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${ZOOM_W}:${ZOOM_H},setsar=1`
+      :`${crop}scale=${W}:${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=${W}:${H},setsar=1`;
+    if(asset.kind==='image')visual+=`,zoompan=z='1+0.018*(0.5-0.5*cos(PI*min(on/${frames},1)))':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':d=1:s=${W}x${H}:fps=${FPS}`;
     else visual+=`,fps=${FPS}`;
     const videoFilter=`[0:v]${visual},ass=${sub}${n?',fade=t=in:st=0:d=0.12':''}[out]`;
     if(voice)args.push('-i',voice);else args.push('-f','lavfi','-i','anullsrc=r=48000:cl=stereo');

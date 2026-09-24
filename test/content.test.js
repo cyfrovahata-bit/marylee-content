@@ -42,7 +42,7 @@ test('sales stay silent for every global voice setting; the new stylist voice ig
   const s=await fixture(t),config=configFrom({OPENAI_API_KEY:'test',TTS_ENGINE:'elevenlabs',TTS_OPENAI_VOICE:'coral'});
   const ai=new AI(config,s,async(url,options)=>{
     assert.equal(url,'https://api.openai.com/v1/audio/speech');const body=JSON.parse(options.body);
-    assert.equal(body.voice,'marin');assert.match(body.instructions,/Ukrainian.*lively fashion stylist/);assert.equal(body.speed,1.06);
+    assert.equal(body.voice,'marin');assert.match(body.instructions,/natural.*Ukrainian.*real woman.*friend/);assert.match(body.instructions,/Avoid presenter, announcer and advertising cadence/);assert.equal(body.speed,0.98);
     return new Response(Buffer.alloc(150,1));
   });await ai.voice('Порівняй ці образи.');
 });
